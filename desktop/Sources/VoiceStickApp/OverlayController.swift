@@ -104,6 +104,16 @@ final class OverlayController {
         )
     }
 
+    func showError(_ text: String, onHidden: (() -> Void)? = nil) {
+        show(
+            mode: .error,
+            text: text.isEmpty ? "Unknown ASR error" : text,
+            hint: "ASR Error",
+            autoHideAfter: 2,
+            onHidden: onHidden
+        )
+    }
+
     func showStatus(_ text: String) {
         show(mode: .listening, text: text, hint: "", autoHideAfter: nil)
     }
@@ -249,10 +259,12 @@ private final class RecognitionIndicatorView: NSView {
         case listening
         case countdown(duration: TimeInterval)
         case paused
+        case error
     }
 
     private let barLayers = (0..<3).map { _ in CALayer() }
     private let ringLayer = CAShapeLayer()
+    private let xLayers = (0..<2).map { _ in CAShapeLayer() }
     private var isAnimating = false
 
     override init(frame frameRect: NSRect) {
@@ -278,6 +290,8 @@ private final class RecognitionIndicatorView: NSView {
             showCountdown(duration: duration)
         case .paused:
             showPausedRing()
+        case .error:
+            showErrorCircle()
         }
     }
 
@@ -290,6 +304,13 @@ private final class RecognitionIndicatorView: NSView {
         ringLayer.lineWidth = 3
         ringLayer.isHidden = true
         layer?.addSublayer(ringLayer)
+        for xLayer in xLayers {
+            xLayer.strokeColor = NSColor.black.withAlphaComponent(0.34).cgColor
+            xLayer.lineCap = .round
+            xLayer.lineWidth = 3
+            xLayer.isHidden = true
+            layer?.addSublayer(xLayer)
+        }
         for bar in barLayers {
             bar.backgroundColor = NSColor.black.withAlphaComponent(0.34).cgColor
             bar.cornerRadius = 2
@@ -313,6 +334,20 @@ private final class RecognitionIndicatorView: NSView {
             ellipseIn: ringBounds.insetBy(dx: ringInset, dy: ringInset),
             transform: nil
         )
+        for xLayer in xLayers {
+            xLayer.frame = bounds
+        }
+        let xInset = size * 0.34
+        let xRect = ringBounds.insetBy(dx: xInset, dy: xInset)
+        let firstPath = CGMutablePath()
+        firstPath.move(to: CGPoint(x: xRect.minX, y: xRect.minY))
+        firstPath.addLine(to: CGPoint(x: xRect.maxX, y: xRect.maxY))
+        xLayers[0].path = firstPath
+
+        let secondPath = CGMutablePath()
+        secondPath.move(to: CGPoint(x: xRect.minX, y: xRect.maxY))
+        secondPath.addLine(to: CGPoint(x: xRect.maxX, y: xRect.minY))
+        xLayers[1].path = secondPath
 
         let barWidth: CGFloat = 4
         let spacing: CGFloat = 4
@@ -334,6 +369,7 @@ private final class RecognitionIndicatorView: NSView {
     private func showListeningBars() {
         ringLayer.removeAnimation(forKey: "countdown")
         ringLayer.isHidden = true
+        setXLayersHidden(true)
         for bar in barLayers {
             bar.isHidden = false
         }
@@ -362,6 +398,7 @@ private final class RecognitionIndicatorView: NSView {
         for bar in barLayers {
             bar.isHidden = true
         }
+        setXLayersHidden(true)
 
         ringLayer.isHidden = false
         ringLayer.strokeEnd = 1
@@ -383,6 +420,18 @@ private final class RecognitionIndicatorView: NSView {
         ringLayer.removeAnimation(forKey: "countdown")
         ringLayer.isHidden = false
         ringLayer.strokeEnd = 1
+        setXLayersHidden(true)
+    }
+
+    private func showErrorCircle() {
+        stopAnimating()
+        for bar in barLayers {
+            bar.isHidden = true
+        }
+        ringLayer.removeAnimation(forKey: "countdown")
+        ringLayer.isHidden = false
+        ringLayer.strokeEnd = 1
+        setXLayersHidden(false)
     }
 
     private func stopAnimating() {
@@ -391,6 +440,12 @@ private final class RecognitionIndicatorView: NSView {
             bar.removeAnimation(forKey: "listening")
             bar.opacity = 0.28
             bar.transform = CATransform3DIdentity
+        }
+    }
+
+    private func setXLayersHidden(_ isHidden: Bool) {
+        for xLayer in xLayers {
+            xLayer.isHidden = isHidden
         }
     }
 }

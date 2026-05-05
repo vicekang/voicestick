@@ -12,11 +12,23 @@ struct AudioFrame {
 
 struct StateEvent: Decodable {
     let event: String
+    let button: String?
     let sessionID: UInt32?
+    let durationMs: UInt32?
+    let hardware: String?
+    let firmwareVersion: String?
+    let buttons: [String]?
+    let uiStates: [String]?
 
     enum CodingKeys: String, CodingKey {
         case event
+        case button
         case sessionID = "session_id"
+        case durationMs = "duration_ms"
+        case hardware
+        case firmwareVersion = "firmware_version"
+        case buttons
+        case uiStates = "ui_states"
     }
 }
 
@@ -91,9 +103,13 @@ enum BleProtocol {
         return try? JSONDecoder().decode(FirmwareOTAStateEvent.self, from: payload)
     }
 
-    static func controlPayload(event: String, text: String) -> Data {
-        let json = #"{"event":"\#(event)","text":"\#(text.jsonEscaped)"}"#
-        return Data(json.utf8)
+    static func uiStatePayload(state: String, text: String) -> Data {
+        let payload = [
+            "event": "ui_state",
+            "state": state,
+            "text": text
+        ]
+        return (try? JSONSerialization.data(withJSONObject: payload)) ?? Data()
     }
 
     static func otaBeginPayload(imageSize: UInt32, transferID: UInt32) -> Data {
@@ -134,14 +150,6 @@ private extension UInt16 {
 private extension UInt32 {
     init(littleEndianBytes bytes: Data.SubSequence) {
         self = bytes.enumerated().reduce(0) { $0 | UInt32($1.element) << UInt32($1.offset * 8) }
-    }
-}
-
-private extension String {
-    var jsonEscaped: String {
-        replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "\"", with: "\\\"")
-            .replacingOccurrences(of: "\n", with: "\\n")
     }
 }
 

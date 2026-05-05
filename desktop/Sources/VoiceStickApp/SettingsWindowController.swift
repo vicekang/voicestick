@@ -15,6 +15,7 @@ final class SettingsWindowController: NSWindowController {
     private var firmwareUpdateWindowController: FirmwareUpdateWindowController?
     private var currentDisplayedProvider: ASRProvider = .volcengine
     private var resourceRow: NSStackView?
+    var onConfigChanged: ((AppConfig) -> Void)?
     var onPairedDevicesChanged: (([String]) -> Void)?
     var onFirmwareUpdateRequested: ((URL, @escaping (FirmwareUpdateProgress) -> Void, @escaping (Result<Void, Error>) -> Void) -> Void)?
     var onFirmwareUpdateCancelRequested: (() -> Void)?
@@ -183,6 +184,7 @@ final class SettingsWindowController: NSWindowController {
 
         do {
             try config.save()
+            onConfigChanged?(config)
             statusLabel.stringValue = "Saved."
             window?.close()
         } catch {

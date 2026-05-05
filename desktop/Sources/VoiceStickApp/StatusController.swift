@@ -144,7 +144,7 @@ final class StatusController {
         menu.removeAllItems()
         if hasRecoverableInput {
             menu.addItem(makeMenuItem(
-                title: "恢复上一次输入",
+                title: "Restore Last Input",
                 symbolName: "arrow.uturn.backward",
                 action: #selector(restoreLastInput)
             ))
@@ -159,7 +159,7 @@ final class StatusController {
             )
             let submenu = NSMenu()
             let forgetItem = makeMenuItem(
-                title: "忘掉这个设备",
+                title: "Forget This Device",
                 symbolName: "xmark.circle",
                 action: #selector(forgetConnectedDevice)
             )
@@ -176,7 +176,7 @@ final class StatusController {
             ))
         } else if needsPairing {
             menu.addItem(makeMenuItem(
-                title: "匹配设备...",
+                title: "Pair Device...",
                 symbolName: "dot.radiowaves.left.and.right",
                 action: #selector(pairDevice)
             ))
@@ -197,6 +197,12 @@ final class StatusController {
         }
 
         menu.addItem(NSMenuItem.separator())
+
+        menu.addItem(makeMenuItem(
+            title: "Website",
+            symbolName: "safari",
+            action: #selector(openWebsite)
+        ))
 
         if onCheckForUpdates != nil {
             menu.addItem(makeMenuItem(
@@ -239,6 +245,11 @@ final class StatusController {
 
     func showPausedFinal(_ text: String) {
         overlay.showPaused(text: text)
+    }
+
+    func showError(_ text: String, onHidden: (() -> Void)? = nil) {
+        setStatus("ASR error: \(text)")
+        overlay.showError(text, onHidden: onHidden)
     }
 
     func hideOverlay(onHidden: (() -> Void)? = nil) {
@@ -297,6 +308,10 @@ final class StatusController {
 
     @objc private func checkForUpdates() {
         onCheckForUpdates?()
+    }
+
+    @objc private func openWebsite() {
+        NSWorkspace.shared.open(AppConfig.websiteURL)
     }
 
     @objc private func quitApp() {

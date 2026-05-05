@@ -97,8 +97,8 @@ final class BleCentral: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate
         scanIfReady()
     }
 
-    func sendControl(event: String, text: String) {
-        let data = BleProtocol.controlPayload(event: event, text: text)
+    func sendUIState(_ state: String, text: String = "") {
+        let data = BleProtocol.uiStatePayload(state: state, text: text)
         for (id, characteristic) in controlCharacteristics {
             peripherals[id]?.writeValue(data, for: characteristic, type: .withoutResponse)
         }
@@ -199,7 +199,7 @@ final class BleCentral: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate
                 peripheral.setNotifyValue(true, for: characteristic)
             case BleProtocol.controlUUID:
                 controlCharacteristics[peripheral.identifier] = characteristic
-                sendControl(event: "connected", text: "")
+                sendUIState("ready")
             case BleProtocol.otaRXUUID:
                 otaCharacteristics[peripheral.identifier] = characteristic
             case BleProtocol.otaStateUUID:

@@ -16,21 +16,22 @@ Hold the front button on the StickS3 to record. When you release it, the macOS m
 
 - StickS3 advertises as `VS-XXXX`, where `XXXX` is derived from the last two bytes of the eFuse MAC.
 - The macOS app only connects to paired `VS-XXXX` devices. If no device is paired, the menu bar app can open a pairing window to scan nearby VoiceStick devices.
-- The front button starts a recording session on press and ends it on release.
+- The front button maps to the protocol `primary` role; it starts a recording session on press and ends it on release when the app has put the device in `ready`.
 - The firmware reads 16 kHz mono PCM from the ES8311 microphone, encodes it as Opus, and sends it over BLE notifications.
 - The macOS app wraps incoming Opus payloads into Ogg Opus and forwards them to ASR over WebSocket.
 - ASR providers can be direct Volcengine or VoiceStick Cloud relay.
-- During recognition, the macOS app shows a floating overlay and menu bar status. Final text enters a 1.2 second confirmation countdown.
+- During recognition, the macOS app shows a floating overlay and menu bar status. The firmware display stays in the thinking state after button release until the text is pasted or cancelled.
+- Final text enters a 1.2 second confirmation countdown.
 - Pressing the front button during the countdown pauses auto-paste. Pressing the front button again confirms paste; pressing the side button cancels it.
 - Pressing the side button while idle restores the last recoverable input confirmation.
 - Optional debug audio cache saves each valid recognition session as Ogg Opus.
-- The firmware screen shows pairing, ready, listening, error, and battery states. It dims after 30 seconds of inactivity. On battery power it enters deep sleep after 5 minutes; while charging or USB powered it stays at the dimmed-screen stage. The front button wakes it from deep sleep.
+- The firmware screen shows pairing, ready, listening, thinking, pending confirmation, error, and battery states based on app-sent `ui_state` updates. It dims after 30 seconds of inactivity. On battery power it enters deep sleep after 5 minutes; while charging or USB powered it stays at the dimmed-screen stage. The front button wakes it from deep sleep.
 
 ## Hardware Target
 
 - Board: M5Stack StickS3 / ESP32-S3-PICO-1-N8R8
-- Front button: GPIO11, push-to-talk and deep-sleep wake
-- Side button: GPIO12, cancel or restore the last input confirmation
+- Front button: GPIO11, protocol `primary`, push-to-talk and deep-sleep wake
+- Side button: GPIO12, protocol `secondary`, cancel or restore the last input confirmation
 - PMIC IRQ: GPIO13
 - Audio codec: ES8311 over I2S, 16 kHz / 16 bit / mono
 - Display: 135 x 240 ST7789P3 portrait screen
@@ -45,9 +46,13 @@ Main pin definitions live in `firmware/components/stick_s3_board/include/stick_s
 | Unpaired / disconnected | No recording; screen shows `VS-XXXX` | No effective action |
 | Connected idle | Hold to record | Restore last input confirmation |
 | Recording | Release to finish recording | Does not cancel the active recording |
-| Finalizing | New recording is ignored | No effective action |
-| Final text countdown | Pause auto-paste and show confirmation | Cancel pending text |
-| Paused confirmation | Confirm paste | Cancel pending text |
+| Thinking / finalizing | New recording is ignored | Cancel the in-progress recognition |
+| Pending confirmation countdown | Pause auto-paste and keep pending confirmation | Cancel pending text |
+| Manual pending confirmation | Confirm paste | Cancel pending text |
+
+The firmware reports raw button facts (`button_down` / `button_up` with
+`primary` or `secondary`). The macOS app owns the interaction state machine and
+sends `ui_state` updates back to the firmware for the screen.
 
 By default the paste flow does not press Return. Enable `Press Return after paste` in settings, or set `auto_enter = true` in the config file, to send Return after paste.
 
@@ -172,9 +177,9 @@ Example:
 ```toml
 asr_provider = "volcengine"
 voicestick_api_key = ""
-voicestick_cloud_url = "wss://api.voicestick.app/v1/asr"
+voicestick_cloud_url = "wss://api.xiaozhi.me/voicestick/asr/"
 volcengine_api_key = "your_volcengine_asr_api_key"
-resource_id = "volc.bigasr.sauc.duration"
+resource_id = "volc.seedasr.sauc.duration"
 paired_device_ids = ""
 auto_enter = false
 debug_audio_cache = false

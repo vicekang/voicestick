@@ -47,21 +47,30 @@ struct AppConfig {
         "volc.bigasr.sauc.concurrent"
     ]
 
-    static let defaultVoiceStickCloudURL = "wss://api.voicestick.app/v1/asr"
+    static let defaultVoiceStickCloudURL = "wss://api.xiaozhi.me/voicestick/asr/"
     static let volcengineWebSocketURL = "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async"
+    static let websiteURL = URL(string: "https://78.github.io/voicestick/")!
 
-    static func load() -> AppConfig {
-        let defaults = AppConfig(
+    static var configExists: Bool {
+        FileManager.default.fileExists(atPath: configURL.path)
+    }
+
+    static var defaults: AppConfig {
+        AppConfig(
             asrProvider: .volcengine,
             voiceStickAPIKey: "",
             voiceStickCloudURL: defaultVoiceStickCloudURL,
             volcengineAPIKey: "",
-            resourceID: supportedResourceIDs[2],
+            resourceID: supportedResourceIDs[0],
             pairedDeviceIDs: [],
             autoEnter: false,
             debugAudioCache: false,
             debugAudioDirectory: defaultDebugAudioDirectory
         )
+    }
+
+    static func load() -> AppConfig {
+        let defaults = Self.defaults
 
         guard let text = try? String(contentsOf: configURL) else {
             return defaults

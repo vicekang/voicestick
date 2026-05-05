@@ -66,32 +66,63 @@ struct StateBleFrame {
 }
 ```
 
+State events report device facts from the firmware to the app. They do not carry
+business actions such as "cancel" or "confirm"; the app owns that interpretation.
+
 Currently emitted state events:
 
 ```json
-{"event":"press_start","session_id":1234}
-{"event":"press_end","session_id":1234}
-{"event":"cancel"}
+{"event":"device_info","hardware":"stick_s3","firmware_version":"0.2.0","buttons":["primary","secondary"],"ui_states":["ready","recording","thinking","pending_confirmation","error"]}
+{"event":"button_down","button":"primary","session_id":1234}
+{"event":"button_up","button":"primary","duration_ms":620,"session_id":1234}
+{"event":"button_down","button":"secondary"}
+{"event":"button_up","button":"secondary","duration_ms":90}
 ```
 
-`press_start` and `press_end` bracket a push-to-talk session. `cancel` is sent by the side button only outside active recording. The macOS app uses `cancel` to cancel pending text, or to restore the last input confirmation when no text is pending.
+Buttons are named by role instead of physical placement. On StickS3, the front
+button maps to `primary` and the side button maps to `secondary`. `session_id` is
+included when a `primary` press starts or stops a local audio recording.
+
+Deprecated firmware-to-app events:
+
+| Event | Replacement | Reason |
+| --- | --- | --- |
+| `press_start` | `button_down` with `button:"primary"` | The old name assumed the front button and implied recording semantics. |
+| `press_end` | `button_up` with `button:"primary"` | The old name implied recording semantics and did not include a button role. |
+| `cancel` | `button_down` / `button_up` with `button:"secondary"` | The old event encoded app meaning; the same button can cancel, restore, or be ignored depending on app state. |
 
 ## Control Event
 
-The Mac writes compact JSON to `control_rx`. The current firmware logs the payload and does not otherwise act on it.
+The Mac writes compact JSON to `control_rx`. Control events are authoritative UI
+state from the app to the firmware display.
 
 Current desktop events:
 
 ```json
-{"event":"connected","text":""}
-{"event":"partial","text":"hello"}
-{"event":"final","text":"hello world"}
-{"event":"paste_done","text":""}
-{"event":"paste_cancelled","text":""}
-{"event":"error","text":"ASR timeout"}
+{"event":"ui_state","state":"ready","text":""}
+{"event":"ui_state","state":"recording","text":""}
+{"event":"ui_state","state":"thinking","text":"partial text"}
+{"event":"ui_state","state":"pending_confirmation","text":"final text"}
+{"event":"ui_state","state":"error","text":"ASR timeout"}
 ```
 
-The desktop helper always includes a `text` field, even for events without text content.
+The desktop helper always includes a `text` field, even for states without text
+content. Firmware may immediately render local physical feedback, such as
+showing the recording cat when the primary button starts audio, but the app's
+`ui_state` is the authoritative display state. Current StickS3 firmware does not
+render recognition text on-device because the LVGL font set does not include
+Chinese glyphs; `text` is used only to choose fixed English hints.
+
+Deprecated app-to-firmware events:
+
+| Event | Replacement | Reason |
+| --- | --- | --- |
+| `connected` | `ui_state:ready` | Connection is not a display state after pairing. |
+| `partial` | `ui_state:thinking` with `text` | Partial text is display content for the thinking state. |
+| `final` | `ui_state:pending_confirmation` with `text` | Final text is still cancellable until pasted. |
+| `paste_done` | `ui_state:ready` | Once pasted, the device returns to ready. |
+| `paste_cancelled` | `ui_state:ready` | Once cancelled, the device returns to ready. |
+| `error` | `ui_state:error` with `text` | Errors are another UI state. |
 
 ## BLE OTA
 
@@ -184,10 +215,15 @@ The firmware also dims the display after 30 seconds of idle time. On battery pow
 macOS:
 
 ```text
-needs_pairing -> scanning -> connected -> listening -> finalizing -> countdown -> paste_done
+needs_pairing -> scanning -> ready -> recording -> thinking -> pending_confirmation -> ready
 ```
 
-During the final-text countdown, pressing the front button pauses auto-paste. A second front-button press confirms paste. A side-button `cancel` cancels pending text. When idle, side-button `cancel` restores the last recoverable input confirmation.
+During recognition and confirmation, the firmware keeps showing the thinking cat
+until the app sends `ui_state:ready`. During pending confirmation, `primary`
+confirms or pauses according to the app's internal countdown mode, and
+`secondary` cancels. When idle, `secondary` restores the last recoverable input
+confirmation. These meanings are app state-machine behavior, not firmware
+protocol events.
 
 Recordings shorter than 0.5 seconds are discarded locally and are not sent to ASR.
 
@@ -204,7 +240,7 @@ wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async
 VoiceStick Cloud default endpoint:
 
 ```text
-wss://api.voicestick.app/v1/asr
+wss://api.xiaozhi.me/voicestick/asr/
 ```
 
 The first request payload currently sent by the desktop app is:

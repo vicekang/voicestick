@@ -120,10 +120,11 @@ Important response fields:
 | `result.utterances[].definite` | Whether a segment is finalized. |
 | `result.utterances[].start_time` / `end_time` | Segment timestamps in milliseconds. |
 
-Voice Stick currently shows partial text during recording. After the
-push-to-talk session ends, the final text enters a 1.2 second confirmation
-countdown before paste. The front button can pause and then confirm that paste;
-the side button cancels pending text.
+Voice Stick shows partial text while ASR is active and keeps the firmware display
+in the thinking state after the push-to-talk session ends. Final text enters a
+1.2 second confirmation countdown before paste. The primary button can pause and
+then confirm that paste; the secondary button cancels in-progress recognition or
+pending text.
 
 ## Common Errors
 

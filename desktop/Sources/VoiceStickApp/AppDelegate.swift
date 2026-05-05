@@ -6,10 +6,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var coordinator: VoiceStickCoordinator?
     private var settingsWindowController: SettingsWindowController?
     private var pairDeviceWindowController: PairDeviceWindowController?
+    private var onboardingWindowController: OnboardingWindowController?
     private var updaterController: SPUStandardUpdaterController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        let config = AppConfig.load()
+        configureMainMenu()
+        configureApplicationIcon()
+        if AppConfig.configExists {
+            startApp(config: AppConfig.load())
+        } else {
+            showOnboarding()
+        }
+    }
+
+    private func configureMainMenu() {
+        let mainMenu = NSMenu()
+        let appItem = NSMenuItem()
+        mainMenu.addItem(appItem)
+
+        let appMenu = NSMenu()
+        appMenu.addItem(withTitle: "Quit VoiceStick", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        appItem.submenu = appMenu
+
+        let editItem = NSMenuItem()
+        mainMenu.addItem(editItem)
+
+        let editMenu = NSMenu(title: "Edit")
+        editMenu.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
+        editMenu.addItem(withTitle: "Redo", action: Selector(("redo:")), keyEquivalent: "Z")
+        editMenu.addItem(NSMenuItem.separator())
+        editMenu.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        editMenu.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        editMenu.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        editMenu.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        editItem.submenu = editMenu
+
+        NSApp.mainMenu = mainMenu
+    }
+
+    private func startApp(config: AppConfig) {
         let statusController = StatusController(needsPairing: config.pairedDeviceIDs.isEmpty)
         let coordinator = VoiceStickCoordinator(config: config, statusController: statusController)
 
@@ -20,6 +55,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusController.onOpenSettings = { [weak self] in
             let controller = self?.settingsWindowController ?? SettingsWindowController()
             self?.settingsWindowController = controller
+            controller.onConfigChanged = { [weak self] config in
+                self?.statusController?.setNeedsPairing(config.pairedDeviceIDs.isEmpty)
+                self?.coordinator?.updateConfig(config)
+            }
             controller.onPairedDevicesChanged = { [weak self] deviceIDs in
                 self?.statusController?.setNeedsPairing(deviceIDs.isEmpty)
                 self?.coordinator?.updatePairedDeviceIDs(deviceIDs)
@@ -30,6 +69,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             controller.onFirmwareUpdateCancelRequested = { [weak self] in
                 self?.coordinator?.cancelFirmwareUpdate()
             }
+            self?.showDockIconWhileWindowVisible(controller)
             controller.show()
         }
         statusController.onPairDevice = { [weak self] in
@@ -56,6 +96,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         coordinator.start()
     }
 
+    private func showOnboarding() {
+        let controller = OnboardingWindowController(config: AppConfig.defaults) { [weak self] config in
+            self?.onboardingWindowController = nil
+            self?.startApp(config: config)
+        }
+        onboardingWindowController = controller
+        showDockIconWhileWindowVisible(controller)
+        controller.show()
+    }
+
+    private func configureApplicationIcon() {
+        if let image = Self.applicationIconImage() {
+            NSApp.applicationIconImage = image
+            let imageView = NSImageView(frame: NSRect(x: 4, y: 4, width: 120, height: 120))
+            imageView.image = image
+            imageView.imageScaling = .scaleProportionallyUpOrDown
+            let dockView = NSView(frame: NSRect(x: 0, y: 0, width: 128, height: 128))
+            dockView.addSubview(imageView)
+            NSApp.dockTile.contentView = dockView
+            NSApp.dockTile.display()
+        }
+    }
+
     private static var hasSparklePublicKey: Bool {
         guard let publicKey = Bundle.main.object(forInfoDictionaryKey: "SUPublicEDKey") as? String else {
             return false
@@ -78,7 +141,63 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         pairDeviceWindowController = controller
+        showDockIconWhileWindowVisible(controller)
         controller.show()
+    }
+
+    private func showDockIconWhileWindowVisible(_ windowController: NSWindowController) {
+        configureApplicationIcon()
+        NSApp.setActivationPolicy(.regular)
+        configureApplicationIcon()
+        guard let window = windowController.window else { return }
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(windowWillCloseForDockIcon),
+            name: NSWindow.willCloseNotification,
+            object: window
+        )
+    }
+
+    @objc private func windowWillCloseForDockIcon(_ notification: Notification) {
+        NotificationCenter.default.removeObserver(
+            self,
+            name: NSWindow.willCloseNotification,
+            object: notification.object
+        )
+        hideDockIconIfNoWindowsAreVisible()
+    }
+
+    private func hideDockIconIfNoWindowsAreVisible() {
+        DispatchQueue.main.async {
+            let hasVisibleWindow = NSApp.windows.contains { $0.isVisible }
+            if !hasVisibleWindow {
+                NSApp.setActivationPolicy(.accessory)
+            }
+        }
+    }
+
+    private static func applicationIconImage() -> NSImage? {
+        let fileManager = FileManager.default
+        let cwd = URL(fileURLWithPath: fileManager.currentDirectoryPath, isDirectory: true)
+        let executableDirectory = Bundle.main.executableURL?.deletingLastPathComponent()
+
+        let candidateURLs = [
+            Bundle.main.url(forResource: "AppIcon", withExtension: "icns"),
+            Bundle.main.resourceURL?.appendingPathComponent("AppIcon.icns"),
+            cwd.appendingPathComponent("Resources/AppIcon.icns"),
+            cwd.appendingPathComponent("desktop/Resources/AppIcon.icns"),
+            executableDirectory?.appendingPathComponent("../../Resources/AppIcon.icns").standardizedFileURL,
+            executableDirectory?.appendingPathComponent("../../../Resources/AppIcon.icns").standardizedFileURL,
+            executableDirectory?.appendingPathComponent("../../../../Resources/AppIcon.icns").standardizedFileURL
+        ]
+
+        for url in candidateURLs.compactMap({ $0 }) where fileManager.fileExists(atPath: url.path) {
+            if let image = NSImage(contentsOf: url) {
+                return image
+            }
+        }
+        return nil
     }
 
     private func forgetDevice(_ deviceID: String) {
