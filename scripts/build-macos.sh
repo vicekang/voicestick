@@ -91,6 +91,13 @@ lipo -create \
 
 cp "$PLIST" "$APP_DIR/Contents/Info.plist"
 
+ICON_PATH="$DESKTOP_DIR/Resources/AppIcon.icns"
+if [ -f "$ICON_PATH" ]; then
+    cp "$ICON_PATH" "$APP_DIR/Contents/Resources/AppIcon.icns"
+else
+    echo "WARNING: App icon was not found: $ICON_PATH"
+fi
+
 SPARKLE_FRAMEWORK="$(find -L "$DESKTOP_DIR/.build-arm64/artifacts" -name Sparkle.framework -type d 2>/dev/null | head -1 || true)"
 if [ -n "$SPARKLE_FRAMEWORK" ]; then
     cp -R "$SPARKLE_FRAMEWORK" "$APP_DIR/Contents/Frameworks/"

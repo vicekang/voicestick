@@ -1,4 +1,5 @@
 import AppKit
+import UniformTypeIdentifiers
 
 final class SettingsWindowController: NSWindowController {
     private let providerPopup = NSPopUpButton()
@@ -9,17 +10,21 @@ final class SettingsWindowController: NSWindowController {
     private let debugAudioButton = NSButton(checkboxWithTitle: "Save debug audio files", target: nil, action: nil)
     private let debugAudioDirectoryField = NSTextField()
     private let statusLabel = NSTextField(labelWithString: "")
+    private let firmwareUpdateButton = NSButton(title: "Update Firmware...", target: nil, action: nil)
     private var pairDeviceWindowController: PairDeviceWindowController?
+    private var firmwareUpdateWindowController: FirmwareUpdateWindowController?
     private var currentDisplayedProvider: ASRProvider = .volcengine
     private var resourceRow: NSStackView?
     var onPairedDevicesChanged: (([String]) -> Void)?
+    var onFirmwareUpdateRequested: ((URL, @escaping (FirmwareUpdateProgress) -> Void, @escaping (Result<Void, Error>) -> Void) -> Void)?
+    var onFirmwareUpdateCancelRequested: (() -> Void)?
 
     private var config: AppConfig
 
     init(config: AppConfig = AppConfig.load()) {
         self.config = config
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 560, height: 520),
+            contentRect: NSRect(x: 0, y: 0, width: 560, height: 570),
             styleMask: [.titled, .closable, .miniaturizable],
             backing: .buffered,
             defer: false
@@ -56,6 +61,9 @@ final class SettingsWindowController: NSWindowController {
         stack.addArrangedSubview(sectionTitle("Device"))
         stack.addArrangedSubview(row(label: "Paired Devices", control: pairedDevicesRow()))
         stack.addArrangedSubview(row(label: "After Paste", control: autoEnterButton))
+        firmwareUpdateButton.target = self
+        firmwareUpdateButton.action = #selector(chooseFirmwareImage)
+        stack.addArrangedSubview(row(label: "Firmware", control: firmwareUpdateButton))
 
         stack.addArrangedSubview(sectionTitle("ASR"))
         configureProviderPopup()
@@ -189,6 +197,41 @@ final class SettingsWindowController: NSWindowController {
     @objc private func openDebugAudioFolder() {
         let directory = URL(fileURLWithPath: debugAudioDirectoryField.stringValue, isDirectory: true)
         AppConfig.openDebugAudioDirectory(directory)
+    }
+
+    @objc private func chooseFirmwareImage() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = [UTType(filenameExtension: "bin") ?? .data]
+        panel.prompt = "Update"
+        if panel.runModal() != .OK {
+            return
+        }
+        guard let url = panel.url else { return }
+
+        let updateWindow = FirmwareUpdateWindowController(fileName: url.lastPathComponent)
+        updateWindow.onCancel = { [weak self] in
+            self?.onFirmwareUpdateCancelRequested?()
+        }
+        firmwareUpdateWindowController = updateWindow
+        updateWindow.show()
+
+        firmwareUpdateButton.isEnabled = false
+        statusLabel.stringValue = "Firmware update starting..."
+        onFirmwareUpdateRequested?(url, { [weak self] progress in
+            DispatchQueue.main.async {
+                self?.firmwareUpdateWindowController?.update(progress: progress)
+                self?.statusLabel.stringValue = "Firmware \(Int(progress.fraction * 100))%"
+            }
+        }, { [weak self] result in
+            DispatchQueue.main.async {
+                self?.firmwareUpdateButton.isEnabled = true
+                self?.firmwareUpdateWindowController?.finish(result: result)
+                self?.statusLabel.stringValue = ""
+            }
+        })
     }
 
     @objc private func pairDevice() {

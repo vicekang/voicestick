@@ -21,4 +21,5 @@ firmware/.vscode/
 sdkconfig
 docs/cat_sprites/
 docs/cat.png
+docs/app_icon/
 dependencies.lock

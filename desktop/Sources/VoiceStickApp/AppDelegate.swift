@@ -24,6 +24,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.statusController?.setNeedsPairing(deviceIDs.isEmpty)
                 self?.coordinator?.updatePairedDeviceIDs(deviceIDs)
             }
+            controller.onFirmwareUpdateRequested = { [weak self] url, progress, completion in
+                self?.coordinator?.updateFirmware(from: url, progress: progress, completion: completion)
+            }
+            controller.onFirmwareUpdateCancelRequested = { [weak self] in
+                self?.coordinator?.cancelFirmwareUpdate()
+            }
             controller.show()
         }
         statusController.onPairDevice = { [weak self] in

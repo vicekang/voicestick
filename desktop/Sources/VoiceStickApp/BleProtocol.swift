@@ -20,11 +20,39 @@ struct StateEvent: Decodable {
     }
 }
 
+struct FirmwareOTAStateEvent: Decodable {
+    let event: String
+    let transferID: UInt32?
+    let written: UInt32?
+    let size: UInt32?
+    let code: String?
+    let espErr: Int?
+    let rebootMs: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case event
+        case transferID = "transfer_id"
+        case written
+        case size
+        case code
+        case espErr = "esp_err"
+        case rebootMs = "reboot_ms"
+    }
+}
+
 enum BleProtocol {
     static let serviceUUID = "8F2F0B84-6E6F-4B23-88F7-3A3CEAFC5100"
     static let audioUUID = "8F2F0B84-6E6F-4B23-88F7-3A3CEAFC5101"
     static let stateUUID = "8F2F0B84-6E6F-4B23-88F7-3A3CEAFC5102"
     static let controlUUID = "8F2F0B84-6E6F-4B23-88F7-3A3CEAFC5103"
+    static let otaRXUUID = "8F2F0B84-6E6F-4B23-88F7-3A3CEAFC5104"
+    static let otaStateUUID = "8F2F0B84-6E6F-4B23-88F7-3A3CEAFC5105"
+
+    static let otaTypeBegin: UInt8 = 0x20
+    static let otaTypeData: UInt8 = 0x21
+    static let otaTypeEnd: UInt8 = 0x22
+    static let otaTypeAbort: UInt8 = 0x23
+    static let otaTypeState: UInt8 = 0x30
 
     static func parseAudioFrame(_ data: Data) -> AudioFrame? {
         guard data.count >= 16 else { return nil }
@@ -55,9 +83,45 @@ enum BleProtocol {
         return try? JSONDecoder().decode(StateEvent.self, from: payload)
     }
 
+    static func parseFirmwareOTAStateEvent(_ data: Data) -> FirmwareOTAStateEvent? {
+        guard data.count >= 4, data[0] == 1, data[1] == otaTypeState else { return nil }
+        let payloadLength = Int(UInt16(littleEndianBytes: data[2..<4]))
+        guard data.count >= 4 + payloadLength else { return nil }
+        let payload = data.subdata(in: 4..<(4 + payloadLength))
+        return try? JSONDecoder().decode(FirmwareOTAStateEvent.self, from: payload)
+    }
+
     static func controlPayload(event: String, text: String) -> Data {
         let json = #"{"event":"\#(event)","text":"\#(text.jsonEscaped)"}"#
         return Data(json.utf8)
+    }
+
+    static func otaBeginPayload(imageSize: UInt32, transferID: UInt32) -> Data {
+        var data = Data([1, otaTypeBegin, 12, 0])
+        data.appendLittleEndian(imageSize)
+        data.appendLittleEndian(transferID)
+        return data
+    }
+
+    static func otaDataPayload(transferID: UInt32, offset: UInt32, chunk: Data) -> Data {
+        var data = Data([1, otaTypeData, 12, 0])
+        data.appendLittleEndian(transferID)
+        data.appendLittleEndian(offset)
+        data.append(chunk)
+        return data
+    }
+
+    static func otaEndPayload(transferID: UInt32, imageSize: UInt32) -> Data {
+        var data = Data([1, otaTypeEnd, 12, 0])
+        data.appendLittleEndian(transferID)
+        data.appendLittleEndian(imageSize)
+        return data
+    }
+
+    static func otaAbortPayload(transferID: UInt32) -> Data {
+        var data = Data([1, otaTypeAbort, 8, 0])
+        data.appendLittleEndian(transferID)
+        return data
     }
 }
 
@@ -78,5 +142,14 @@ private extension String {
         replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"")
             .replacingOccurrences(of: "\n", with: "\\n")
+    }
+}
+
+private extension Data {
+    mutating func appendLittleEndian(_ value: UInt32) {
+        append(UInt8(value & 0xff))
+        append(UInt8((value >> 8) & 0xff))
+        append(UInt8((value >> 16) & 0xff))
+        append(UInt8((value >> 24) & 0xff))
     }
 }

@@ -105,6 +105,24 @@ final class VoiceStickCoordinator {
         ble.updatePairedDeviceIDs(deviceIDs)
     }
 
+    func updateFirmware(from url: URL, progress: @escaping (FirmwareUpdateProgress) -> Void,
+                        completion: @escaping (Result<Void, Error>) -> Void) {
+        do {
+            let image = try Data(contentsOf: url)
+            ble.updateFirmware(image: image, progress: progress) { result in
+                DispatchQueue.main.async {
+                    completion(result)
+                }
+            }
+        } catch {
+            completion(.failure(error))
+        }
+    }
+
+    func cancelFirmwareUpdate() {
+        ble.cancelFirmwareUpdate()
+    }
+
     private func handleStateEvent(_ event: StateEvent) {
         switch event.event {
         case "press_start":

@@ -4,6 +4,8 @@
 <dict>
 	<key>CFBundleExecutable</key>
 	<string>VoiceStickApp</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
 	<key>CFBundleIdentifier</key>
 	<string>app.voicestick.mac</string>
 	<key>CFBundleInfoDictionaryVersion</key>
@@ -13,9 +15,9 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>0.1.0</string>
+	<string>0.2.0</string>
 	<key>CFBundleVersion</key>
-	<string>0.1.0</string>
+	<string>0.2.0</string>
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.productivity</string>
 	<key>LSMinimumSystemVersion</key>
@@ -26,8 +28,8 @@
 	<true/>
 	<key>SUFeedURL</key>
 	<string>https://78.github.io/voicestick/appcast.xml</string>
-    <key>SUPublicEDKey</key>
-    <string>3JnsktQiuygz/L9+t9w2fnvryjWNH3yq5+o6Osed2aM=</string>
+	<key>SUPublicEDKey</key>
+	<string>3JnsktQiuygz/L9+t9w2fnvryjWNH3yq5+o6Osed2aM=</string>
 	<key>SUScheduledCheckInterval</key>
 	<integer>86400</integer>
 </dict>
