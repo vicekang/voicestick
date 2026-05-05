@@ -13,6 +13,7 @@ permissions:
   contents: write
   pages: write
   id-token: write
+  actions: write
 
 concurrency:
   group: release-${{ github.ref }}
@@ -165,60 +166,14 @@ jobs:
             dist/VoiceStick-${{ steps.ver.outputs.version }}.zip.sha256
             dist/VoiceStick-${{ steps.ver.outputs.version }}.signature
 
-  deploy-website:
-    name: Deploy Website
+  request-website-deploy:
+    name: Request Website Deploy
     needs: [build-macos, publish-release]
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Download artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: dist
-          pattern: voicestick-macos-*
-          merge-multiple: true
-
-      - name: Update appcast for this release
+      - name: Trigger website deploy on main
         run: |
           set -euo pipefail
-          version="${{ needs.publish-release.outputs.version }}"
-          zip="dist/VoiceStick-${version}.zip"
-          signature="$(cat "dist/VoiceStick-${version}.signature" | tr -d '\n')"
-          length="$(wc -c < "$zip" | tr -d ' ')"
-          notes="$(gh release view "${{ needs.publish-release.outputs.tag }}" --json body -q .body)"
-          python3 scripts/update-appcast.py \
-            --version "$version" \
-            --zip-url "https://github.com/78/voicestick/releases/download/v${version}/VoiceStick-${version}.zip" \
-            --signature "$signature" \
-            --length "$length" \
-            --release-notes "$notes"
+          gh workflow run deploy-website.yml --repo 78/voicestick --ref main
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: website/package-lock.json
-
-      - name: Install website dependencies
-        run: npm ci
-        working-directory: website
-
-      - name: Build website
-        run: npm run build
-        working-directory: website
-
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: website/dist
-
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
