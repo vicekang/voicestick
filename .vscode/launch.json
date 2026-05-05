@@ -1,0 +1,22 @@
+{
+    "configurations": [
+        {
+            "type": "lldb",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:voice-stick}/desktop",
+            "name": "Debug VoiceStickApp (desktop)",
+            "program": "${workspaceFolder:voice-stick}/desktop/.build/debug/VoiceStickApp",
+            "preLaunchTask": "swift: Build Debug VoiceStickApp (desktop)"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:voice-stick}/desktop",
+            "name": "Release VoiceStickApp (desktop)",
+            "program": "${workspaceFolder:voice-stick}/desktop/.build/release/VoiceStickApp",
+            "preLaunchTask": "swift: Build Release VoiceStickApp (desktop)"
+        }
+    ]
+}

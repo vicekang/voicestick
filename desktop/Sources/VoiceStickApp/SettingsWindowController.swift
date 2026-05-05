@@ -1,0 +1,311 @@
+import AppKit
+
+final class SettingsWindowController: NSWindowController {
+    private let providerPopup = NSPopUpButton()
+    private let apiKeyField = NSTextField()
+    private let resourcePopup = NSPopUpButton()
+    private let pairedDevicesPopup = NSPopUpButton()
+    private let autoEnterButton = NSButton(checkboxWithTitle: "Press Return after paste", target: nil, action: nil)
+    private let debugAudioButton = NSButton(checkboxWithTitle: "Save debug audio files", target: nil, action: nil)
+    private let debugAudioDirectoryField = NSTextField()
+    private let statusLabel = NSTextField(labelWithString: "")
+    private var pairDeviceWindowController: PairDeviceWindowController?
+    private var currentDisplayedProvider: ASRProvider = .volcengine
+    private var resourceRow: NSStackView?
+    var onPairedDevicesChanged: (([String]) -> Void)?
+
+    private var config: AppConfig
+
+    init(config: AppConfig = AppConfig.load()) {
+        self.config = config
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 560, height: 520),
+            styleMask: [.titled, .closable, .miniaturizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "VoiceStick Settings"
+        window.isReleasedWhenClosed = false
+        super.init(window: window)
+        buildContent()
+        loadConfigIntoFields()
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func show() {
+        config = AppConfig.load()
+        loadConfigIntoFields()
+        showWindow(nil)
+        window?.center()
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    private func buildContent() {
+        guard let contentView = window?.contentView else { return }
+
+        let stack = NSStackView()
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 16
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(stack)
+
+        stack.addArrangedSubview(sectionTitle("Device"))
+        stack.addArrangedSubview(row(label: "Paired Devices", control: pairedDevicesRow()))
+        stack.addArrangedSubview(row(label: "After Paste", control: autoEnterButton))
+
+        stack.addArrangedSubview(sectionTitle("ASR"))
+        configureProviderPopup()
+        stack.addArrangedSubview(row(label: "Provider", control: providerPopup))
+        stack.addArrangedSubview(row(label: "API Key", control: apiKeyField))
+        configureResourcePopup()
+        let resourceRow = row(label: "Resource ID", control: resourcePopup)
+        self.resourceRow = resourceRow
+        stack.addArrangedSubview(resourceRow)
+
+        stack.addArrangedSubview(sectionTitle("Debug"))
+        stack.addArrangedSubview(row(label: "Audio Cache", control: debugAudioButton))
+        let debugDirRow = NSStackView()
+        debugDirRow.orientation = .horizontal
+        debugDirRow.alignment = .centerY
+        debugDirRow.spacing = 8
+        debugAudioDirectoryField.isEditable = false
+        debugAudioDirectoryField.lineBreakMode = .byTruncatingMiddle
+        let chooseButton = NSButton(title: "Choose...", target: self, action: #selector(chooseDebugDirectory))
+        debugDirRow.addArrangedSubview(debugAudioDirectoryField)
+        debugDirRow.addArrangedSubview(chooseButton)
+        debugAudioDirectoryField.widthAnchor.constraint(equalToConstant: 260).isActive = true
+        stack.addArrangedSubview(row(label: "Audio Folder", control: debugDirRow))
+
+        let buttonRow = NSStackView()
+        buttonRow.orientation = .horizontal
+        buttonRow.alignment = .centerY
+        buttonRow.spacing = 10
+        let openFolderButton = NSButton(title: "Open Config Folder", target: self, action: #selector(openConfigFolder))
+        let openDebugFolderButton = NSButton(title: "Open Debug Audio Folder", target: self, action: #selector(openDebugAudioFolder))
+        let spacer = NSView()
+        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        let saveButton = NSButton(title: "Save", target: self, action: #selector(saveSettings))
+        saveButton.keyEquivalent = "\r"
+        buttonRow.addArrangedSubview(openFolderButton)
+        buttonRow.addArrangedSubview(openDebugFolderButton)
+        buttonRow.addArrangedSubview(statusLabel)
+        buttonRow.addArrangedSubview(spacer)
+        buttonRow.addArrangedSubview(saveButton)
+        stack.addArrangedSubview(buttonRow)
+        buttonRow.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+
+        statusLabel.textColor = .secondaryLabelColor
+
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 24),
+            stack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -24),
+            stack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 24),
+            stack.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor, constant: -24)
+        ])
+    }
+
+    private func configureResourcePopup() {
+        resourcePopup.addItems(withTitles: AppConfig.supportedResourceIDs)
+    }
+
+    private func configureProviderPopup() {
+        providerPopup.addItems(withTitles: [
+            ASRProvider.voiceStickCloud.displayName,
+            ASRProvider.volcengine.displayName
+        ])
+        providerPopup.target = self
+        providerPopup.action = #selector(providerSelectionChanged)
+    }
+
+    private func loadConfigIntoFields() {
+        currentDisplayedProvider = config.asrProvider
+        providerPopup.selectItem(withTitle: config.asrProvider.displayName)
+        apiKeyField.stringValue = apiKey(for: config.asrProvider)
+        reloadPairedDevices()
+        autoEnterButton.state = config.autoEnter ? .on : .off
+        debugAudioButton.state = config.debugAudioCache ? .on : .off
+        debugAudioDirectoryField.stringValue = config.debugAudioDirectory.path
+
+        if resourcePopup.itemTitles.contains(config.resourceID) {
+            resourcePopup.selectItem(withTitle: config.resourceID)
+        }
+        updateProviderRows()
+        statusLabel.stringValue = ""
+    }
+
+    @objc private func providerSelectionChanged() {
+        saveDisplayedAPIKey()
+        currentDisplayedProvider = selectedProvider()
+        config.asrProvider = currentDisplayedProvider
+        apiKeyField.stringValue = apiKey(for: currentDisplayedProvider)
+        updateProviderRows()
+    }
+
+    @objc private func chooseDebugDirectory() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.directoryURL = URL(fileURLWithPath: debugAudioDirectoryField.stringValue)
+        if panel.runModal() == .OK, let url = panel.url {
+            debugAudioDirectoryField.stringValue = url.path
+        }
+    }
+
+    @objc private func saveSettings() {
+        saveDisplayedAPIKey()
+        let provider = selectedProvider()
+        let resourceID = resourcePopup.titleOfSelectedItem ?? config.resourceID
+
+        config = AppConfig(
+            asrProvider: provider,
+            voiceStickAPIKey: config.voiceStickAPIKey,
+            voiceStickCloudURL: config.voiceStickCloudURL,
+            volcengineAPIKey: config.volcengineAPIKey,
+            resourceID: resourceID,
+            pairedDeviceIDs: config.pairedDeviceIDs,
+            autoEnter: autoEnterButton.state == .on,
+            debugAudioCache: debugAudioButton.state == .on,
+            debugAudioDirectory: URL(fileURLWithPath: debugAudioDirectoryField.stringValue, isDirectory: true)
+        )
+
+        do {
+            try config.save()
+            statusLabel.stringValue = "Saved."
+            window?.close()
+        } catch {
+            statusLabel.stringValue = "Save failed: \(error.localizedDescription)"
+        }
+    }
+
+    @objc private func openConfigFolder() {
+        AppConfig.openConfigDirectory()
+    }
+
+    @objc private func openDebugAudioFolder() {
+        let directory = URL(fileURLWithPath: debugAudioDirectoryField.stringValue, isDirectory: true)
+        AppConfig.openDebugAudioDirectory(directory)
+    }
+
+    @objc private func pairDevice() {
+        let controller = PairDeviceWindowController(existingDeviceIDs: config.pairedDeviceIDs) { [weak self] deviceID in
+            guard let self else { return }
+            if !self.config.pairedDeviceIDs.contains(deviceID) {
+                self.config.pairedDeviceIDs.append(deviceID)
+            }
+            self.reloadPairedDevices()
+            self.savePairedDevices()
+        }
+        pairDeviceWindowController = controller
+        controller.show()
+    }
+
+    @objc private func forgetSelectedDevice() {
+        guard pairedDevicesPopup.indexOfSelectedItem >= 0 else { return }
+        let selected = pairedDevicesPopup.titleOfSelectedItem ?? ""
+        let deviceID = AppConfig.normalizedDeviceID(selected)
+        config.pairedDeviceIDs.removeAll { $0 == deviceID }
+        reloadPairedDevices()
+        savePairedDevices()
+    }
+
+    private func reloadPairedDevices() {
+        pairedDevicesPopup.removeAllItems()
+        if config.pairedDeviceIDs.isEmpty {
+            pairedDevicesPopup.addItem(withTitle: "None")
+            pairedDevicesPopup.isEnabled = false
+        } else {
+            pairedDevicesPopup.addItems(withTitles: config.pairedDeviceIDs.map { "VS-\($0)" })
+            pairedDevicesPopup.isEnabled = true
+        }
+    }
+
+    private func pairedDevicesRow() -> NSView {
+        let stack = NSStackView()
+        stack.orientation = .horizontal
+        stack.alignment = .centerY
+        stack.spacing = 8
+
+        pairedDevicesPopup.widthAnchor.constraint(equalToConstant: 220).isActive = true
+
+        let pairButton = NSButton(title: "Pair...", target: self, action: #selector(pairDevice))
+        let forgetButton = NSButton(title: "Forget", target: self, action: #selector(forgetSelectedDevice))
+
+        stack.addArrangedSubview(pairedDevicesPopup)
+        stack.addArrangedSubview(pairButton)
+        stack.addArrangedSubview(forgetButton)
+        return stack
+    }
+
+    private func savePairedDevices() {
+        do {
+            try config.save()
+            onPairedDevicesChanged?(config.pairedDeviceIDs)
+            statusLabel.stringValue = config.pairedDeviceIDs.isEmpty ? "Saved." : "Saved. Connecting..."
+        } catch {
+            statusLabel.stringValue = "Save failed: \(error.localizedDescription)"
+        }
+    }
+
+    private func selectedProvider() -> ASRProvider {
+        switch providerPopup.titleOfSelectedItem {
+        case ASRProvider.voiceStickCloud.displayName:
+            return .voiceStickCloud
+        case ASRProvider.volcengine.displayName:
+            return .volcengine
+        default:
+            return config.asrProvider
+        }
+    }
+
+    private func apiKey(for provider: ASRProvider) -> String {
+        switch provider {
+        case .voiceStickCloud:
+            return config.voiceStickAPIKey
+        case .volcengine:
+            return config.volcengineAPIKey
+        }
+    }
+
+    private func saveDisplayedAPIKey() {
+        let value = apiKeyField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        switch currentDisplayedProvider {
+        case .voiceStickCloud:
+            config.voiceStickAPIKey = value
+        case .volcengine:
+            config.volcengineAPIKey = value
+        }
+    }
+
+    private func updateProviderRows() {
+        resourceRow?.isHidden = currentDisplayedProvider != .volcengine
+    }
+
+    private func sectionTitle(_ title: String) -> NSTextField {
+        let label = NSTextField(labelWithString: title)
+        label.font = .systemFont(ofSize: 13, weight: .semibold)
+        label.textColor = .secondaryLabelColor
+        return label
+    }
+
+    private func row(label: String, control: NSView) -> NSStackView {
+        let row = NSStackView()
+        row.orientation = .horizontal
+        row.alignment = .centerY
+        row.spacing = 12
+        let labelView = NSTextField(labelWithString: label)
+        labelView.alignment = .right
+        labelView.textColor = .secondaryLabelColor
+        labelView.widthAnchor.constraint(equalToConstant: 120).isActive = true
+        if control is NSTextField || control is NSPopUpButton || control is NSStackView {
+            control.widthAnchor.constraint(greaterThanOrEqualToConstant: 300).isActive = true
+        }
+        row.addArrangedSubview(labelView)
+        row.addArrangedSubview(control)
+        return row
+    }
+}
