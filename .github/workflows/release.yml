@@ -56,7 +56,7 @@ jobs:
             idf.py build
             mkdir -p ../dist
             cd build
-            esptool.py --chip esp32s3 merge_bin -o "../dist/voicestick-firmware-sticks3-merged.bin" @flash_args
+            esptool.py --chip esp32s3 merge_bin -o "../../dist/voicestick-firmware-sticks3-merged.bin" @flash_args
 
       - name: Stage firmware checksums
         run: |
