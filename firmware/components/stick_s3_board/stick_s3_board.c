@@ -30,6 +30,7 @@ static i2c_master_dev_handle_t s_pmic_dev;
 #define M5PM1_REG_IRQ_MASK3 0x45
 
 #define M5PM1_PWR_CFG_LDO_EN BIT(2)
+#define M5PM1_PWR_CFG_LED_CTRL BIT(4)
 #define M5PM1_HOLD_CFG_LDO_HOLD BIT(5)
 #define M5PM1_GPIO2_L3B_POWER_EN BIT(2)
 #define M5PM1_GPIO_FUNC_MASK(pin) (0x03 << ((pin) * 2))
@@ -179,7 +180,7 @@ static void init_pmic(void)
         return;
     }
 
-    const uint8_t new_pwr_cfg = pwr_cfg | M5PM1_PWR_CFG_LDO_EN;
+    const uint8_t new_pwr_cfg = (pwr_cfg | M5PM1_PWR_CFG_LDO_EN) & ~M5PM1_PWR_CFG_LED_CTRL;
     const uint8_t new_hold_cfg = hold_cfg | M5PM1_HOLD_CFG_LDO_HOLD;
 
     ESP_ERROR_CHECK_WITHOUT_ABORT(pmic_write_reg(M5PM1_REG_PWR_CFG, new_pwr_cfg));
