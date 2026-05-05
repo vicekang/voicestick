@@ -108,6 +108,9 @@ final class StatusController {
     var onPairDevice: (() -> Void)?
     var onForgetDevice: ((String) -> Void)?
     var onRestoreLastInput: (() -> Bool)?
+    var onCheckForUpdates: (() -> Void)? {
+        didSet { rebuildMenu() }
+    }
     private var needsPairing: Bool
     private var hasRecoverableInput = false
     private var connectedDevice: ConnectedVoiceStickDevice?
@@ -194,6 +197,14 @@ final class StatusController {
         }
 
         menu.addItem(NSMenuItem.separator())
+
+        if onCheckForUpdates != nil {
+            menu.addItem(makeMenuItem(
+                title: "Check for Updates...",
+                symbolName: "arrow.triangle.2.circlepath",
+                action: #selector(checkForUpdates)
+            ))
+        }
 
         menu.addItem(makeMenuItem(
             title: "Quit",
@@ -282,6 +293,10 @@ final class StatusController {
 
     @objc private func restoreLastInput() {
         _ = onRestoreLastInput?()
+    }
+
+    @objc private func checkForUpdates() {
+        onCheckForUpdates?()
     }
 
     @objc private func quitApp() {

@@ -1,10 +1,12 @@
 import AppKit
+import Sparkle
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusController: StatusController?
     private var coordinator: VoiceStickCoordinator?
     private var settingsWindowController: SettingsWindowController?
     private var pairDeviceWindowController: PairDeviceWindowController?
+    private var updaterController: SPUStandardUpdaterController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let config = AppConfig.load()
@@ -33,8 +35,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusController.onRestoreLastInput = { [weak self] in
             self?.coordinator?.restoreLastInputConfirmation() ?? false
         }
+        if Self.hasSparklePublicKey {
+            let updaterController = SPUStandardUpdaterController(
+                startingUpdater: true,
+                updaterDelegate: nil,
+                userDriverDelegate: nil
+            )
+            self.updaterController = updaterController
+            statusController.onCheckForUpdates = {
+                updaterController.updater.checkForUpdates()
+            }
+        }
         statusController.setStatus(config.pairedDeviceIDs.isEmpty ? "Pair a VoiceStick" : "Scanning")
         coordinator.start()
+    }
+
+    private static var hasSparklePublicKey: Bool {
+        guard let publicKey = Bundle.main.object(forInfoDictionaryKey: "SUPublicEDKey") as? String else {
+            return false
+        }
+        return !publicKey.isEmpty && !publicKey.hasPrefix("REPLACE_WITH")
     }
 
     private func showPairDeviceWindow() {

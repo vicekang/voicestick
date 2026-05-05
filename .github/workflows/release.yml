@@ -1,0 +1,224 @@
+name: Release Build
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to build, for example v0.1.0. Must match VERSION."
+        required: true
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-macos:
+    name: Build macOS Release
+    runs-on: macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+
+      - name: Resolve tag and validate VERSION
+        id: ver
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+              tag="${{ inputs.tag }}"
+          else
+              tag="${GITHUB_REF_NAME}"
+          fi
+          version="$(cat VERSION | head -n1 | tr -d '[:space:]')"
+          if [ "v${version}" != "${tag}" ]; then
+              echo "::error ::tag ${tag} does not match VERSION (${version})."
+              exit 1
+          fi
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Validate required release secrets
+        run: |
+          set -euo pipefail
+          test -n "${SPARKLE_PUBLIC_ED_KEY:-}" || (echo "::error ::Missing SPARKLE_PUBLIC_ED_KEY" && exit 1)
+          test -n "${SPARKLE_PRIVATE_ED_KEY:-}" || (echo "::error ::Missing SPARKLE_PRIVATE_ED_KEY" && exit 1)
+          test -n "${MACOS_CERTIFICATE_P12:-}" || (echo "::error ::Missing MACOS_CERTIFICATE_P12" && exit 1)
+          test -n "${MACOS_CERTIFICATE_PASSWORD:-}" || (echo "::error ::Missing MACOS_CERTIFICATE_PASSWORD" && exit 1)
+          test -n "${APPLE_ID:-}" || (echo "::error ::Missing APPLE_ID" && exit 1)
+          test -n "${APPLE_TEAM_ID:-}" || (echo "::error ::Missing APPLE_TEAM_ID" && exit 1)
+          test -n "${APPLE_APP_SPECIFIC_PASSWORD:-}" || (echo "::error ::Missing APPLE_APP_SPECIFIC_PASSWORD" && exit 1)
+        env:
+          SPARKLE_PUBLIC_ED_KEY: ${{ secrets.SPARKLE_PUBLIC_ED_KEY }}
+          SPARKLE_PRIVATE_ED_KEY: ${{ secrets.SPARKLE_PRIVATE_ED_KEY }}
+          MACOS_CERTIFICATE_P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+
+      - name: Import Developer ID certificate
+        env:
+          MACOS_CERTIFICATE_P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          CERT_PATH="$RUNNER_TEMP/developer-id.p12"
+          KEYCHAIN_PATH="$RUNNER_TEMP/app-signing.keychain-db"
+          printf '%s' "$MACOS_CERTIFICATE_P12" | base64 --decode > "$CERT_PATH"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERT_PATH" -P "$MACOS_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security list-keychain -d user -s "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+      - name: Configure notarization profile
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+        run: |
+          xcrun notarytool store-credentials AC_PASSWORD \
+            --apple-id "$APPLE_ID" \
+            --team-id "$APPLE_TEAM_ID" \
+            --password "$APPLE_APP_SPECIFIC_PASSWORD"
+
+      - name: Build app and Sparkle ZIP
+        env:
+          SPARKLE_PUBLIC_ED_KEY: ${{ secrets.SPARKLE_PUBLIC_ED_KEY }}
+          SPARKLE_PRIVATE_ED_KEY: ${{ secrets.SPARKLE_PRIVATE_ED_KEY }}
+        run: scripts/build-macos.sh --release
+
+      - name: Build notarized DMG
+        run: scripts/make-dmg.sh
+
+      - name: Stage artifacts
+        id: artifact
+        run: |
+          set -euo pipefail
+          version="${{ steps.ver.outputs.version }}"
+          mkdir -p dist
+          cp "build/VoiceStick-${version}.dmg" dist/
+          cp "build/VoiceStick-${version}.zip" dist/
+          cp "build/VoiceStick-${version}.signature" dist/
+          ( cd dist && shasum -a 256 "VoiceStick-${version}.dmg" > "VoiceStick-${version}.dmg.sha256" )
+          ( cd dist && shasum -a 256 "VoiceStick-${version}.zip" > "VoiceStick-${version}.zip.sha256" )
+          echo "zip_length=$(wc -c < "dist/VoiceStick-${version}.zip" | tr -d ' ')" >> "$GITHUB_OUTPUT"
+          echo "sparkle_signature=$(cat "dist/VoiceStick-${version}.signature" | tr -d '\n')" >> "$GITHUB_OUTPUT"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: voicestick-macos-${{ steps.ver.outputs.version }}
+          path: dist/*
+
+  publish-release:
+    name: Publish GitHub Release
+    needs: build-macos
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.ver.outputs.tag }}
+      version: ${{ steps.ver.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve tag
+        id: ver
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+              tag="${{ inputs.tag }}"
+          else
+              tag="${GITHUB_REF_NAME}"
+          fi
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: voicestick-macos-*
+          merge-multiple: true
+
+      - name: Publish Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.ver.outputs.tag }}
+          name: VoiceStick ${{ steps.ver.outputs.version }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            dist/VoiceStick-${{ steps.ver.outputs.version }}.dmg
+            dist/VoiceStick-${{ steps.ver.outputs.version }}.dmg.sha256
+            dist/VoiceStick-${{ steps.ver.outputs.version }}.zip
+            dist/VoiceStick-${{ steps.ver.outputs.version }}.zip.sha256
+            dist/VoiceStick-${{ steps.ver.outputs.version }}.signature
+
+  deploy-website:
+    name: Deploy Website
+    needs: [build-macos, publish-release]
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: voicestick-macos-*
+          merge-multiple: true
+
+      - name: Update appcast for this release
+        run: |
+          set -euo pipefail
+          version="${{ needs.publish-release.outputs.version }}"
+          zip="dist/VoiceStick-${version}.zip"
+          signature="$(cat "dist/VoiceStick-${version}.signature" | tr -d '\n')"
+          length="$(wc -c < "$zip" | tr -d ' ')"
+          notes="$(gh release view "${{ needs.publish-release.outputs.tag }}" --json body -q .body)"
+          python3 scripts/update-appcast.py \
+            --version "$version" \
+            --zip-url "https://github.com/78/voicestick/releases/download/v${version}/VoiceStick-${version}.zip" \
+            --signature "$signature" \
+            --length "$length" \
+            --release-notes "$notes"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: website/package-lock.json
+
+      - name: Install website dependencies
+        run: npm ci
+        working-directory: website
+
+      - name: Build website
+        run: npm run build
+        working-directory: website
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: website/dist
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

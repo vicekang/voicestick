@@ -6,12 +6,17 @@ sdkconfig.old
 *.xcodeproj/project.xcworkspace/
 DerivedData/
 .build/
+desktop/.build-*/
 .swiftpm/
 Package.resolved
+!desktop/Package.resolved
 Config/config.toml
 *.log
+*.p12
 __pycache__/
 *.py[cod]
+node_modules/
+website/dist/
 firmware/.vscode/
 sdkconfig
 docs/cat_sprites/

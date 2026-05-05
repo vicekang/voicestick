@@ -1,0 +1,47 @@
+{
+  "nav": {
+    "download": "下载",
+    "github": "GitHub"
+  },
+  "hero": {
+    "eyebrow": "BLE 随身语音输入器",
+    "title": "VoiceStick",
+    "lead": "基于 M5Stack StickS3 的小巧语音棒。通过 BLE 低功耗蓝牙连接 Mac，接入豆包语音大模型，并把实时反馈的文本输入到当前光标位置。",
+    "download": "下载 macOS DMG",
+    "source": "查看源码",
+    "imageAlt": "VoiceStick 基于 M5Stack StickS3 的随身语音输入器"
+  },
+  "features": {
+    "label": "功能",
+    "ble": {
+      "title": "BLE 低功耗蓝牙",
+      "body": "通过 BLE 连接你手上的 StickS3 设备，低功耗、无线、随拿随用，适合长期放在桌面或随身携带。"
+    },
+    "model": {
+      "title": "豆包语音大模型",
+      "body": "接入豆包语音大模型做语音识别，对中文口语、长句和日常表达更友好，把想法快速变成可编辑文本。"
+    },
+    "feedback": {
+      "title": "实时反馈输入",
+      "body": "识别过程会在屏幕上即时反馈，最终文本确认后再写入当前输入框，减少误输入。"
+    }
+  },
+  "story": {
+    "eyebrow": "小巧玲珑，随身携带",
+    "title": "拿起来就能说，放下继续写",
+    "body": "VoiceStick 把 M5Stack StickS3 变成一个独立的语音输入按钮。它可以挂在桌边、放进口袋，或者随笔记本一起带走；需要输入时按住说话，识别结果就回到 Mac 上。"
+  },
+  "download": {
+    "title": "下载最新版",
+    "body": "安装 macOS App 后，后续版本会通过内置更新检查自动提示。",
+    "cta": "前往 GitHub Release"
+  },
+  "footer": {
+    "appcast": "Appcast"
+  },
+  "language": {
+    "zh": "中",
+    "en": "EN",
+    "label": "切换语言"
+  }
+}

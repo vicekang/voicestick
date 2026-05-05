@@ -124,6 +124,17 @@ swift run VoiceStickApp
 
 The app is a menu bar accessory app and requests Bluetooth permission. Text insertion uses simulated `Command-V` plus optional Return. If macOS blocks the keyboard events, grant Accessibility permission to the running terminal or app in System Settings.
 
+For a distributable macOS release with Sparkle updates:
+
+```sh
+SPARKLE_PUBLIC_ED_KEY="..." scripts/build-macos.sh --release
+scripts/make-dmg.sh
+```
+
+The build script writes `build/VoiceStick-<version>.app`, `build/VoiceStick-<version>.zip`, and a Sparkle signature file. Upload the DMG and ZIP to GitHub Releases, then update `website/appcast.xml` for the GitHub Pages update feed.
+
+GitHub Actions can do the release path automatically when a `v<version>` tag is pushed. The tag must match `VERSION`, for example `VERSION=0.1.0` pairs with `v0.1.0`. The release workflow publishes the GitHub Release assets and deploys the website/appcast to GitHub Pages.
+
 ## Local Config
 
 Config path:

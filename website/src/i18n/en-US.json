@@ -1,0 +1,47 @@
+{
+  "nav": {
+    "download": "Download",
+    "github": "GitHub"
+  },
+  "hero": {
+    "eyebrow": "Portable BLE voice input",
+    "title": "VoiceStick",
+    "lead": "A compact voice stick based on M5Stack StickS3. It connects to your Mac over BLE, uses the Doubao speech foundation model for recognition, and turns real-time feedback into text at your cursor.",
+    "download": "Download macOS DMG",
+    "source": "View source",
+    "imageAlt": "VoiceStick portable voice input device based on M5Stack StickS3"
+  },
+  "features": {
+    "label": "Features",
+    "ble": {
+      "title": "Low-power BLE",
+      "body": "Pair the StickS3 in your hand over Bluetooth Low Energy. It is wireless, efficient, and ready to stay on your desk or travel with your laptop."
+    },
+    "model": {
+      "title": "Doubao speech foundation model",
+      "body": "VoiceStick uses the Doubao speech foundation model for recognition, making spoken Chinese, longer sentences, and everyday phrasing feel fast to turn into editable text."
+    },
+    "feedback": {
+      "title": "Live text feedback",
+      "body": "Recognition appears as live feedback on screen, then the final text is confirmed before it is inserted into the current input field."
+    }
+  },
+  "story": {
+    "eyebrow": "Small, portable, always nearby",
+    "title": "Pick it up to speak. Put it down to keep writing.",
+    "body": "VoiceStick turns M5Stack StickS3 into a dedicated voice input button. Keep it near your keyboard, slip it into a pocket, or carry it with your Mac. Hold to talk, and the recognized text comes back to your cursor."
+  },
+  "download": {
+    "title": "Download the latest release",
+    "body": "After installing the macOS app, future versions can be offered through the built-in update checker.",
+    "cta": "Go to GitHub Release"
+  },
+  "footer": {
+    "appcast": "Appcast"
+  },
+  "language": {
+    "zh": "中",
+    "en": "EN",
+    "label": "Switch language"
+  }
+}

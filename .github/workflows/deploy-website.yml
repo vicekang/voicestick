@@ -1,0 +1,72 @@
+name: Deploy Website to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "website/**"
+      - ".github/workflows/deploy-website.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: website/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: website
+
+      - name: Update appcast from latest release
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          tag="$(gh release view --json tagName -q .tagName)"
+          version="${tag#v}"
+          zip_asset="VoiceStick-${version}.zip"
+          sig_asset="VoiceStick-${version}.signature"
+          zip_length="$(gh release view "$tag" --json assets \
+            -q ".assets[] | select(.name == \"${zip_asset}\") | .size")"
+          gh release download "$tag" --pattern "$sig_asset" --dir "$RUNNER_TEMP"
+          signature="$(cat "$RUNNER_TEMP/$sig_asset" | tr -d '\n')"
+          notes="$(gh release view "$tag" --json body -q .body)"
+          python3 scripts/update-appcast.py \
+            --version "$version" \
+            --zip-url "https://github.com/78/voicestick/releases/download/${tag}/${zip_asset}" \
+            --signature "$signature" \
+            --length "$zip_length" \
+            --release-notes "$notes"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build website
+        run: npm run build
+        working-directory: website
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: website/dist
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
