@@ -1,5 +1,6 @@
 {
   "nav": {
+    "flash": "Flash",
     "download": "Download",
     "github": "GitHub"
   },
@@ -8,6 +9,7 @@
     "title": "VoiceStick",
     "lead": "A compact voice stick based on M5Stack StickS3. It connects to your Mac over BLE, uses the Doubao speech foundation model for recognition, and turns real-time feedback into text at your cursor.",
     "download": "Download macOS DMG",
+    "flash": "Flash firmware online",
     "source": "View source",
     "imageAlt": "VoiceStick portable voice input device based on M5Stack StickS3"
   },
@@ -30,6 +32,52 @@
     "eyebrow": "Small, portable, always nearby",
     "title": "Pick it up to speak. Put it down to keep writing.",
     "body": "VoiceStick turns M5Stack StickS3 into a dedicated voice input button. Keep it near your keyboard, slip it into a pocket, or carry it with your Mac. Hold to talk, and the recognized text comes back to your cursor."
+  },
+  "flasher": {
+    "eyebrow": "Direct browser connection",
+    "title": "Flash firmware online",
+    "body": "Use Chrome or Edge to write the latest Release firmware to M5Stack StickS3 over USB serial. The firmware comes from GitHub Releases, so no local flashing tools are required.",
+    "steps": {
+      "usb": "Connect the StickS3 to your computer with USB-C.",
+      "boot": "If connection fails, hold the side reset button until the internal green LED blinks, then release it.",
+      "flash": "Click start and choose the StickS3 USB serial port."
+    },
+    "button": {
+      "start": "Start flashing",
+      "flashing": "Flashing",
+      "download": "Download firmware"
+    },
+    "status": {
+      "idle": "Ready",
+      "connecting": "Connecting",
+      "downloading": "Downloading firmware",
+      "flashing": "Writing Flash",
+      "resetting": "Resetting device",
+      "done": "Flash complete",
+      "error": "Flash failed",
+      "unsupported": "Unsupported browser"
+    },
+    "meta": {
+      "target": "ESP32-S3 / StickS3"
+    },
+    "firmware": {
+      "latest": "VoiceStick StickS3 firmware will be fetched from the latest GitHub Release.",
+      "ready": "Firmware loaded: {size}"
+    },
+    "unsupported": "This browser does not support Web Serial. Open this page in desktop Chrome or Edge.",
+    "log": {
+      "empty": "Logs will appear here.",
+      "selectPort": "Waiting for USB serial port selection...",
+      "connecting": "Syncing ESP32-S3 bootloader...",
+      "downloading": "Downloading Release firmware...",
+      "downloaded": "Firmware downloaded: {size}",
+      "flashing": "Writing merged firmware to 0x0...",
+      "done": "Flashing complete. The device is restarting."
+    },
+    "error": {
+      "downloadFailed": "Firmware download failed, HTTP {status}",
+      "wrongChip": "Detected {chip}. Please connect an M5Stack StickS3."
+    }
   },
   "download": {
     "title": "Download the latest release",

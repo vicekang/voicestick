@@ -100,6 +100,12 @@ Flash and monitor:
 idf.py -p /dev/cu.usbmodemXXXX flash monitor
 ```
 
+The firmware uses an OTA partition table with two 3 MB app slots plus a reserved 1984 KB `storage` partition. Devices flashed with the old single-app table need one USB flash to install the new partition table before BLE OTA updates can be used:
+
+```sh
+idf.py -p /dev/cu.usbmodemXXXX erase-flash flash monitor
+```
+
 Firmware dependencies are declared through the ESP-IDF component manager:
 
 - `espressif/button`
@@ -134,6 +140,17 @@ scripts/make-dmg.sh
 The build script writes `build/VoiceStick-<version>.app`, `build/VoiceStick-<version>.zip`, and a Sparkle signature file. Upload the DMG and ZIP to GitHub Releases, then update `website/appcast.xml` for the GitHub Pages update feed.
 
 GitHub Actions can do the release path automatically when a `v<version>` tag is pushed. The tag must match `VERSION`, for example `VERSION=0.1.0` pairs with `v0.1.0`. The release workflow publishes the GitHub Release assets and deploys the website/appcast to GitHub Pages.
+
+The same release workflow also builds the StickS3 firmware with ESP-IDF v5.5.1 and uploads `voicestick-firmware-sticks3-merged.bin` to Aliyun OSS. This is the browser-flashing image intended for the website flasher and should be written at offset `0x0`. Configure these GitHub secrets before running the release workflow:
+
+| Name | Description |
+| --- | --- |
+| `ALIYUN_OSS_ACCESS_KEY_ID` | OSS upload access key ID |
+| `ALIYUN_OSS_ACCESS_KEY_SECRET` | OSS upload access key secret |
+| `ALIYUN_OSS_ENDPOINT` | OSS endpoint, for example `https://oss-cn-hangzhou.aliyuncs.com` |
+| `ALIYUN_OSS_BUCKET` | OSS bucket name |
+
+Set the repository variable `ALIYUN_OSS_PUBLIC_BASE_URL` to the public OSS base URL, for example `https://xiaozhi-voice-assistant.oss-cn-shenzhen.aliyuncs.com`. Optional variable `ALIYUN_OSS_PREFIX` controls the OSS object prefix and defaults to `voicestick/firmwares`.
 
 ## Local Config
 

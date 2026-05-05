@@ -20,6 +20,91 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  build-firmware:
+    name: Build StickS3 Firmware
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+
+      - name: Resolve tag and validate VERSION
+        id: ver
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+              tag="${{ inputs.tag }}"
+          else
+              tag="${GITHUB_REF_NAME}"
+          fi
+          version="$(cat VERSION | head -n1 | tr -d '[:space:]')"
+          if [ "v${version}" != "${tag}" ]; then
+              echo "::error ::tag ${tag} does not match VERSION (${version})."
+              exit 1
+          fi
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Build firmware and merged image
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v5.5.1
+          target: esp32s3
+          path: firmware
+          command: |
+            idf.py build
+            mkdir -p ../dist
+            cd build
+            esptool.py --chip esp32s3 merge_bin -o "../dist/voicestick-firmware-sticks3-merged.bin" @flash_args
+
+      - name: Stage firmware checksums
+        run: |
+          set -euo pipefail
+          cd dist
+          shasum -a 256 "voicestick-firmware-sticks3-merged.bin" > "voicestick-firmware-sticks3-merged.bin.sha256"
+
+      - name: Upload firmware to Aliyun OSS
+        env:
+          ALIYUN_OSS_ACCESS_KEY_ID: ${{ secrets.ALIYUN_OSS_ACCESS_KEY_ID }}
+          ALIYUN_OSS_ACCESS_KEY_SECRET: ${{ secrets.ALIYUN_OSS_ACCESS_KEY_SECRET }}
+          ALIYUN_OSS_ENDPOINT: ${{ secrets.ALIYUN_OSS_ENDPOINT }}
+          ALIYUN_OSS_BUCKET: ${{ secrets.ALIYUN_OSS_BUCKET }}
+          ALIYUN_OSS_PREFIX: ${{ vars.ALIYUN_OSS_PREFIX }}
+        run: |
+          set -euo pipefail
+          test -n "${ALIYUN_OSS_ACCESS_KEY_ID:-}" || (echo "::error ::Missing ALIYUN_OSS_ACCESS_KEY_ID" && exit 1)
+          test -n "${ALIYUN_OSS_ACCESS_KEY_SECRET:-}" || (echo "::error ::Missing ALIYUN_OSS_ACCESS_KEY_SECRET" && exit 1)
+          test -n "${ALIYUN_OSS_ENDPOINT:-}" || (echo "::error ::Missing ALIYUN_OSS_ENDPOINT" && exit 1)
+          test -n "${ALIYUN_OSS_BUCKET:-}" || (echo "::error ::Missing ALIYUN_OSS_BUCKET" && exit 1)
+
+          sudo -v
+          curl -fsSL https://gosspublic.alicdn.com/ossutil/install.sh | sudo bash
+
+          prefix="${ALIYUN_OSS_PREFIX:-voicestick/firmwares}"
+          prefix="${prefix#/}"
+          prefix="${prefix%/}"
+          version="${{ steps.ver.outputs.version }}"
+          firmware="voicestick-firmware-sticks3-merged.bin"
+          checksum="${firmware}.sha256"
+
+          ossutil config \
+            -e "$ALIYUN_OSS_ENDPOINT" \
+            -i "$ALIYUN_OSS_ACCESS_KEY_ID" \
+            -k "$ALIYUN_OSS_ACCESS_KEY_SECRET" \
+            -L EN
+
+          ossutil cp -f "dist/${firmware}" "oss://${ALIYUN_OSS_BUCKET}/${prefix}/${version}/${firmware}"
+          ossutil cp -f "dist/${checksum}" "oss://${ALIYUN_OSS_BUCKET}/${prefix}/${version}/${checksum}"
+          ossutil cp -f "dist/${firmware}" "oss://${ALIYUN_OSS_BUCKET}/${prefix}/latest/${firmware}"
+          ossutil cp -f "dist/${checksum}" "oss://${ALIYUN_OSS_BUCKET}/${prefix}/latest/${checksum}"
+
+      - name: Upload firmware artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: voicestick-firmware-${{ steps.ver.outputs.version }}
+          path: dist/*
+
   build-macos:
     name: Build macOS Release
     runs-on: macos-14
@@ -124,7 +209,7 @@ jobs:
 
   publish-release:
     name: Publish GitHub Release
-    needs: build-macos
+    needs: [build-firmware, build-macos]
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.ver.outputs.tag }}
@@ -149,7 +234,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: dist
-          pattern: voicestick-macos-*
+          pattern: voicestick-*
           merge-multiple: true
 
       - name: Publish Release

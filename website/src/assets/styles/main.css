@@ -247,6 +247,113 @@ h2 {
   line-height: 1.7;
 }
 
+.flasher {
+  background: #ffffff;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.flasher-grid {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.9fr) minmax(320px, 1.1fr);
+  gap: clamp(24px, 5vw, 64px);
+  align-items: center;
+  padding-top: clamp(38px, 7vw, 78px);
+  padding-bottom: clamp(38px, 7vw, 78px);
+}
+
+.flasher-copy > p:not(.eyebrow),
+.firmware-note,
+.browser-warning {
+  margin: 14px 0 0;
+  color: var(--muted);
+  font-size: 17px;
+  line-height: 1.65;
+}
+
+.flash-steps {
+  margin: 22px 0 0;
+  padding-left: 22px;
+  color: var(--ink);
+  font-size: 16px;
+  line-height: 1.7;
+}
+
+.flasher-panel {
+  padding: clamp(18px, 3vw, 28px);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper);
+}
+
+.flasher-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 720;
+}
+
+.flasher-meta span:last-child {
+  color: var(--muted);
+  text-align: right;
+}
+
+.progress-track {
+  width: 100%;
+  height: 10px;
+  margin-top: 18px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #dfe5ec;
+}
+
+.progress-track span {
+  display: block;
+  width: 0;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width 180ms ease;
+}
+
+.flasher-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 20px;
+}
+
+.flasher-actions .button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.browser-warning {
+  color: #9f2f24;
+}
+
+.flash-log {
+  min-height: 150px;
+  max-height: 220px;
+  margin-top: 18px;
+  padding: 14px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: #d8f0ff;
+  background: #17202a;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.flash-log p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
 footer {
   padding: 22px 0;
   color: var(--muted);
@@ -279,6 +386,10 @@ footer {
   }
 
   .story-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .flasher-grid {
     grid-template-columns: 1fr;
   }
 }
