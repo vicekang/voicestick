@@ -37,7 +37,7 @@ static const char *TAG = "ui_status";
 #define LCD_PARAM_BITS 8
 #define LCD_BACKLIGHT_PWM_HZ 5000
 #define LCD_BACKLIGHT_PWM_MAX 255
-#define LCD_BACKLIGHT_DEFAULT 128
+#define LCD_BACKLIGHT_DEFAULT 96
 
 #define LVGL_DRAW_BUF_LINES 24
 #define LVGL_TICK_PERIOD_MS 10
@@ -49,6 +49,8 @@ static const char *TAG = "ui_status";
 #define LCD_BACKLIGHT_LEDC_MODE LEDC_LOW_SPEED_MODE
 #define LCD_BACKLIGHT_LEDC_TIMER LEDC_TIMER_0
 #define LCD_BACKLIGHT_LEDC_CHANNEL LEDC_CHANNEL_0
+#define UI_STATUS_TEXT_MAX 32
+#define UI_HINT_TEXT_MAX 96
 
 static _lock_t s_lvgl_lock;
 static bool s_ready;
@@ -64,6 +66,10 @@ static lv_obj_t *s_battery_tip;
 static lv_obj_t *s_battery_label;
 static ui_status_icons_t s_icons;
 static ui_status_icon_scene_t s_scene = UI_STATUS_ICON_BOOT;
+static char s_status_text[UI_STATUS_TEXT_MAX] = "Booting";
+static char s_hint_text[UI_HINT_TEXT_MAX] = "Starting up";
+static char s_device_name[16] = "BLE";
+static bool s_dimmed;
 
 static bool notify_lvgl_flush_ready(esp_lcd_panel_io_handle_t panel_io,
                                     esp_lcd_panel_io_event_data_t *edata,
@@ -152,13 +158,12 @@ static void create_battery_ui(lv_obj_t *screen)
     lv_obj_align(s_battery_label, LV_ALIGN_TOP_RIGHT, 0, 4);
 }
 
-static void apply_scene_locked(ui_status_icon_scene_t scene, const char *status, const char *hint)
+static void render_scene_locked(ui_status_icon_scene_t scene, const char *status, const char *hint)
 {
     if (!s_ready) {
         return;
     }
 
-    s_scene = scene;
     ui_status_icons_apply(&s_icons, scene);
 
     lv_label_set_text(s_status_label, status);
@@ -197,6 +202,15 @@ static void apply_scene_locked(ui_status_icon_scene_t scene, const char *status,
     ui_status_icons_start_anim(&s_icons, scene);
 }
 
+static void render_current_locked(void)
+{
+    if (s_dimmed) {
+        render_scene_locked(UI_STATUS_ICON_RESTING, "Resting", "");
+    } else {
+        render_scene_locked(s_scene, s_status_text, s_hint_text);
+    }
+}
+
 static void create_status_ui(void)
 {
     s_screen = lv_display_get_screen_active(s_display);
@@ -205,11 +219,11 @@ static void create_status_ui(void)
     lv_obj_set_style_pad_all(s_screen, 8, 0);
 
     s_top_label = lv_label_create(s_screen);
-    lv_label_set_text(s_top_label, "BLE");
+    lv_label_set_text(s_top_label, s_device_name);
     lv_obj_set_style_text_font(s_top_label, &lv_font_montserrat_10, 0);
     lv_obj_set_style_text_color(s_top_label, lv_color_hex(0x7f7180), 0);
     lv_label_set_long_mode(s_top_label, LV_LABEL_LONG_CLIP);
-    lv_obj_set_width(s_top_label, 22);
+    lv_obj_set_width(s_top_label, 66);
     lv_obj_align(s_top_label, LV_ALIGN_TOP_LEFT, 12, 4);
 
     s_ble_dot = create_blob(s_screen, 8, 8, lv_color_hex(0x8fb8ff));
@@ -235,13 +249,16 @@ static void create_status_ui(void)
     lv_obj_align(s_hint_label, LV_ALIGN_BOTTOM_MID, 0, -10);
 
     s_ready = true;
-    apply_scene_locked(UI_STATUS_ICON_BOOT, "Booting", "Starting up");
+    render_current_locked();
 }
 
 static void set_scene(ui_status_icon_scene_t scene, const char *status, const char *hint)
 {
     _lock_acquire(&s_lvgl_lock);
-    apply_scene_locked(scene, status, hint);
+    s_scene = scene;
+    strlcpy(s_status_text, status ? status : "", sizeof(s_status_text));
+    strlcpy(s_hint_text, hint ? hint : "", sizeof(s_hint_text));
+    render_current_locked();
     _lock_release(&s_lvgl_lock);
 }
 
@@ -374,6 +391,18 @@ void ui_status_prepare_deep_sleep(void)
     _lock_release(&s_lvgl_lock);
 }
 
+void ui_status_set_device_name(const char *device_name)
+{
+    strlcpy(s_device_name, device_name && device_name[0] ? device_name : "BLE",
+            sizeof(s_device_name));
+
+    _lock_acquire(&s_lvgl_lock);
+    if (s_ready) {
+        lv_label_set_text(s_top_label, s_device_name);
+    }
+    _lock_release(&s_lvgl_lock);
+}
+
 void ui_status_set_advertising(void)
 {
     ESP_LOGD(TAG, "advertising");
@@ -383,6 +412,7 @@ void ui_status_set_advertising(void)
 void ui_status_set_pairing(const char *device_name)
 {
     ESP_LOGD(TAG, "pairing %s", device_name ? device_name : "");
+    ui_status_set_device_name(device_name);
     set_scene(UI_STATUS_ICON_PAIRING, "Pairing", device_name ? device_name : "VS-0000");
 }
 
@@ -396,10 +426,9 @@ void ui_status_set_idle_dimmed(bool dimmed)
 {
     ESP_LOGD(TAG, "idle dimmed=%d", dimmed);
     _lock_acquire(&s_lvgl_lock);
-    if (dimmed) {
-        apply_scene_locked(UI_STATUS_ICON_RESTING, "Resting", "");
-    } else if (s_scene == UI_STATUS_ICON_RESTING) {
-        apply_scene_locked(UI_STATUS_ICON_IDLE, "Ready", "Hold to talk");
+    if (s_dimmed != dimmed) {
+        s_dimmed = dimmed;
+        render_current_locked();
     }
     _lock_release(&s_lvgl_lock);
 }
@@ -410,7 +439,10 @@ void ui_status_set_recording(uint32_t session_id)
     (void)session_id;
 
     _lock_acquire(&s_lvgl_lock);
-    apply_scene_locked(UI_STATUS_ICON_RECORDING, "Listening", "Speak now");
+    s_scene = UI_STATUS_ICON_RECORDING;
+    strlcpy(s_status_text, "Listening", sizeof(s_status_text));
+    strlcpy(s_hint_text, "Speak now", sizeof(s_hint_text));
+    render_current_locked();
     _lock_release(&s_lvgl_lock);
 }
 

@@ -25,8 +25,8 @@ static const char *TAG = "voice_stick";
 
 #define BATTERY_REFRESH_FALLBACK_MS (10 * 1000)
 #define DISPLAY_DIM_TIMEOUT_MS (30 * 1000)
-#define DISPLAY_ACTIVE_BRIGHTNESS 128
-#define DISPLAY_DIM_BRIGHTNESS 32
+#define DISPLAY_ACTIVE_BRIGHTNESS 96
+#define DISPLAY_DIM_BRIGHTNESS 16
 #define DISPLAY_DIM_TIMEOUT_US (DISPLAY_DIM_TIMEOUT_MS * 1000ULL)
 #define BATTERY_REFRESH_FALLBACK_US (BATTERY_REFRESH_FALLBACK_MS * 1000ULL)
 #define DEEP_SLEEP_TIMEOUT_MS (5 * 60 * 1000)
@@ -426,6 +426,7 @@ static void apply_app_ui_state(const char *state, const char *text)
     if (strcmp(state, "ready") == 0) {
         s_app_ui_state = APP_UI_STATE_READY;
         ui_status_set_idle();
+        note_activity();
     } else if (strcmp(state, "recording") == 0) {
         s_app_ui_state = APP_UI_STATE_RECORDING;
         if (!s_recording) {
@@ -506,6 +507,7 @@ static void app_event_task(void *arg)
         case APP_EVENT_BLE_CONNECTED:
             s_app_ui_state = APP_UI_STATE_READY;
             ui_status_set_idle();
+            note_activity();
             break;
         case APP_EVENT_BLE_DISCONNECTED:
             s_recording = false;
@@ -549,8 +551,7 @@ static void app_event_task(void *arg)
             release_ota_pm_locks();
             s_app_ui_state = APP_UI_STATE_READY;
             ui_status_set_idle();
-            restart_display_dim_timer();
-            restart_deep_sleep_timer();
+            note_activity();
             break;
         }
     }
@@ -756,6 +757,8 @@ void app_main(void)
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "BLE init failed: %s", esp_err_to_name(err));
         ui_status_set_error("BLE init failed");
+    } else {
+        ui_status_set_device_name(voice_ble_device_name());
     }
 
     esp_err_t audio_err = audio_pipeline_init();
