@@ -52,7 +52,7 @@ https://78.github.io/voicestick/appcast.xml
    - `sparkle:edSignature`: content from `build/VoiceStick-<version>.signature`
    - `length`: byte size from `wc -c build/VoiceStick-<version>.zip`
 
-The homepage download button points at the latest GitHub Release so users can install the notarized DMG.
+The homepage download button points at the latest GitHub Release so users can install the notarized DMG. The browser flasher reads the firmware manifest from `VITE_FIRMWARE_MANIFEST_URL` and uses `merged_url`; if the manifest cannot be loaded, it falls back to the versioned merged firmware URL derived from `website/package.json`.
 
 ## Develop
 
@@ -69,11 +69,11 @@ cd website
 npm run build
 ```
 
-The generated `dist/` directory is deployed to GitHub Pages. `public/appcast.xml` is copied to `dist/appcast.xml`.
+The generated `dist/` directory is deployed to GitHub Pages. `public/appcast.xml` is copied to `dist/appcast.xml`. The firmware manifest itself is hosted on OSS, not GitHub Pages.
 
 ## GitHub Actions
 
-- `.github/workflows/release.yml` runs on `v*` tags or manual dispatch. It builds the macOS app, signs and notarizes the DMG, uploads DMG/ZIP/signature assets to the matching GitHub Release, rewrites `public/appcast.xml`, builds the Vue site, and deploys `website/dist` to GitHub Pages.
+- `.github/workflows/release.yml` runs on `v*` tags or manual dispatch. It builds the macOS app, signs and notarizes the DMG, uploads DMG/ZIP/signature assets to the matching GitHub Release, builds versioned OTA and merged firmware images, publishes the firmware manifest to OSS, rewrites `public/appcast.xml`, builds the Vue site, and deploys `website/dist` to GitHub Pages.
 - `.github/workflows/deploy-website.yml` runs when `website/**` changes on `main`. Before deploying, it reads the latest GitHub Release and regenerates `public/appcast.xml` from the latest ZIP asset and signature, so website-only deploys do not overwrite the update feed with a stale placeholder.
 
 Required repository secrets for release builds:

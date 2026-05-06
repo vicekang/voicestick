@@ -15,7 +15,7 @@ Hold the front button on the StickS3 to record. When you release it, the macOS m
 ## Current Features
 
 - StickS3 advertises as `VS-XXXX`, where `XXXX` is derived from the last two bytes of the eFuse MAC.
-- The macOS app only connects to paired `VS-XXXX` devices. If no device is paired, the menu bar app can open a pairing window to scan nearby VoiceStick devices.
+- The macOS app only connects to paired `VS-XXXX` devices and can keep multiple paired devices connected at once. The menu bar app lists every paired device and shows whether each one is connected or still scanning.
 - The front button maps to the protocol `primary` role; it starts a recording session on press and ends it on release when the app has put the device in `ready`.
 - The firmware reads 16 kHz mono PCM from the ES8311 microphone, encodes it as Opus, and sends it over BLE notifications.
 - The macOS app wraps incoming Opus payloads into Ogg Opus and forwards them to ASR over WebSocket.
@@ -24,7 +24,8 @@ Hold the front button on the StickS3 to record. When you release it, the macOS m
 - Final text enters a 1.2 second confirmation countdown.
 - Pressing the front button during the countdown pauses auto-paste. Pressing the front button again confirms paste; pressing the side button cancels it.
 - Pressing the side button while idle restores the last recoverable input confirmation.
-- Optional debug audio cache saves each valid recognition session as Ogg Opus.
+- Optional debug audio cache saves each valid recognition session as Ogg Opus, with the source device ID included in the file name when available.
+- Firmware updates are checked from a signed-by-hash manifest on app launch, device connect/reconnect, and manual menu refresh. Updates are offered per connected device.
 - The firmware screen shows pairing, ready, listening, thinking, pending confirmation, error, and battery states based on app-sent `ui_state` updates. It dims after 30 seconds of inactivity. On battery power it enters deep sleep after 5 minutes; while charging or USB powered it stays at the dimmed-screen stage. The front button wakes it from deep sleep.
 
 ## Hardware Target
@@ -161,7 +162,7 @@ voicestick/firmwares/<version>/manifest.json
 voicestick/firmwares/latest/manifest.json
 ```
 
-The macOS app checks the stable latest manifest URL on app launch, on device connect/reconnect, and at most once every 24 hours while running. The menu also has `Check for Firmware Updates` for a manual refresh. If a connected device reports an older `firmware_version` than the manifest version, its device submenu shows `Update to <version>...`.
+The macOS app checks the stable latest manifest URL on app launch, on device connect/reconnect, and at most once every 24 hours while running. The menu also has `Check for Firmware Updates` for a manual refresh. If a connected device reports an older `firmware_version` than the manifest version, its device submenu shows `Update to <version>...`. The app downloads the manifest `ota_url` and verifies `ota_size` plus `ota_sha256` before starting BLE OTA.
 
 Configure these GitHub secrets before running the release workflow:
 
@@ -230,9 +231,9 @@ Do not commit API keys.
 
 1. Flash and boot the StickS3. The screen shows `VS-XXXX`.
 2. Start the macOS desktop app.
-3. Open the pairing window from the menu bar app, or use `Settings... -> Pair...`.
+3. Open `Pair Device...` from the menu bar app.
 4. Select the matching `VS-XXXX` in the scan list and click `Pair`.
-5. After saving, the desktop app scans for and connects to that device.
+5. After saving, the desktop app scans for and connects to that device. Repeat this flow to pair additional devices.
 
 You can also edit `paired_device_ids` manually. When multiple IDs are saved, the desktop app ignores nearby unpaired VoiceStick devices.
 
