@@ -12,6 +12,6 @@ jobs:
     name: Protocol and state-machine tests
     runs-on: macos-14
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Run transport tests
         run: ./scripts/test-transport.sh
