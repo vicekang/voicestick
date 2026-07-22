@@ -4,11 +4,14 @@
 #include <stddef.h>
 #include <stdint.h>
 #include "esp_err.h"
+#include "audio_transport.h"
 
 #define VOICE_BLE_DEVICE_NAME_PREFIX "VS"
 
 #define VOICE_BLE_FLAG_START 0x01
 #define VOICE_BLE_FLAG_END   0x02
+
+#define VOICE_BLE_CONTROL_TYPE_AUDIO_ACK 0x02
 
 #define VOICE_BLE_OTA_TYPE_BEGIN 0x20
 #define VOICE_BLE_OTA_TYPE_DATA  0x21
@@ -40,6 +43,19 @@ const char *voice_ble_device_name(void);
 bool voice_ble_is_connected(void);
 bool voice_ble_is_ready(void);
 bool voice_ble_ota_is_active(void);
+uint8_t voice_ble_audio_transport_version(void);
+uint16_t voice_ble_att_mtu(void);
+esp_err_t voice_ble_set_audio_transport_version(uint8_t version);
+void voice_ble_begin_audio_session(uint32_t session_id);
+esp_err_t voice_ble_wait_for_audio_window(uint32_t session_id,
+                                          uint32_t next_seq,
+                                          uint32_t max_inflight_frames,
+                                          uint32_t timeout_ms);
+esp_err_t voice_ble_send_audio_packets(uint32_t session_id,
+                                       uint32_t first_seq,
+                                       uint8_t flags,
+                                       const audio_transport_packet_t *packets,
+                                       uint8_t packet_count);
 esp_err_t voice_ble_send_audio(uint32_t session_id, uint32_t seq, uint8_t flags,
                                const uint8_t *opus_payload, size_t len);
 esp_err_t voice_ble_request_fast_interval(void);

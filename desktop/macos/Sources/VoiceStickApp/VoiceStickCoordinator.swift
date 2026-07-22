@@ -144,6 +144,7 @@ final class VoiceStickCoordinator {
     private var waitingForAudioEnd = false
     private var audioEndTimeoutTimer: Timer?
     private var pendingPasteState = PendingPasteState.idle
+    private var sideButtonSendState = SideButtonSendState()
     private var lastRecoverableText: String?
     private var lastRecoverablePeripheralID: UUID?
     private var pairedDeviceIDs: [String]
@@ -474,7 +475,36 @@ final class VoiceStickCoordinator {
             cancelSubtitleCycles(peripheralID: peripheralID, reason: "secondary_cancel")
             return
         }
-        cancelPendingPaste(peripheralID: peripheralID)
+        switch pendingPasteState {
+        case .waitingToPaste(let text), .paused(let text):
+            guard activePeripheralID == peripheralID else { return }
+            NSLog("Side button committing pending text with Return")
+            sideButtonSendState.queueSend(for: peripheralID)
+            statusController.hideOverlay(deviceID: deviceID(for: peripheralID)) { [weak self] in
+                self?.commitPendingPaste(text: text)
+            }
+            return
+        case .idle:
+            break
+        }
+
+        if mainInputState.isRecording {
+            NSLog("Ignoring side send while recording")
+            return
+        }
+        if mainInputState.isFinalizing || isWaitingForFinalText {
+            guard activePeripheralID == peripheralID else { return }
+            NSLog("Side button queued Return until recognized text is pasted")
+            sideButtonSendState.queueSend(for: peripheralID)
+            ble.sendUIState("thinking", to: peripheralID)
+            return
+        }
+        if sideButtonSendState.consumeRecentUnsentPaste(for: peripheralID) {
+            NSLog("Side button sending Return for recent pasted text")
+            inputInjector.pressReturn()
+            return
+        }
+        NSLog("Ignoring side send without recent VoiceStick text")
     }
 
     private func handlePrimaryButtonDown(sessionID: UInt32?, peripheralID: UUID) {
@@ -501,6 +531,7 @@ final class VoiceStickCoordinator {
         }
 
         mainInputState = .recording(sessionID: sessionID, peripheralID: peripheralID, startedAt: Date())
+        sideButtonSendState.resetForNewRecording()
         receivedAudioFrames = 0
         bufferedOggChunks.removeAll(keepingCapacity: true)
         asrStarted = false
@@ -1146,6 +1177,7 @@ final class VoiceStickCoordinator {
 
     private func finishWithASRError(_ message: String) {
         NSLog("ASR error: \(message)")
+        sideButtonSendState.clearQueuedSend()
         cancelAudioEndTimeout()
         asr.cancel()
         pendingPasteState = .idle
@@ -1206,12 +1238,18 @@ final class VoiceStickCoordinator {
     }
 
     private func completePendingPaste(text: String) {
-        let shouldPressEnter = config.autoEnter
+        let pastePeripheralID = activePeripheralID
+        let sideSendRequested = sideButtonSendState.consumeQueuedSend(for: pastePeripheralID)
+        let shouldPressEnter = config.autoEnter || sideSendRequested
         pendingPasteState = .idle
         finishRecognitionCycle()
         statusController.setStatus("Ready")
         sendUIStateForActiveDevice("ready")
         mainInputState = .ready
+        sideButtonSendState.recordPaste(
+            peripheralID: pastePeripheralID,
+            enterWasSent: shouldPressEnter
+        )
         inputInjector.paste(text: text, pressEnter: shouldPressEnter)
     }
 
@@ -1277,6 +1315,7 @@ final class VoiceStickCoordinator {
     }
 
     private func cancelPendingPaste(peripheralID: UUID) {
+        sideButtonSendState.clearQueuedSend()
         if activeSessionID != nil {
             if activePeripheralID == peripheralID {
                 cancelRecognitionInProgress()
@@ -1302,6 +1341,7 @@ final class VoiceStickCoordinator {
     }
 
     private func cancelRecognitionInProgress() {
+        sideButtonSendState.clearQueuedSend()
         cancelAudioEndTimeout()
         asr.cancel()
         pendingPasteState = .idle

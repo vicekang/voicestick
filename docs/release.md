@@ -13,16 +13,11 @@ The Windows package is the special case because the signing certificate is local
 
 In both cases, finish by redeploying the website and verifying all update URLs.
 
-## Version Sources
+## Version Source
 
-Update both version files before creating the release tag:
-
-```text
-VERSION
-firmware/version.txt
-```
-
-`VERSION` is used by the desktop packaging scripts and the GitHub release workflow. `firmware/version.txt` is the firmware version reported by the device, so it must match the release version for OTA update detection to work correctly.
+Update the root `VERSION` file before creating the release tag. It is the
+single source of truth for the desktop packaging scripts, GitHub release
+workflow, and ESP-IDF firmware build.
 
 For release `0.2.4`, the tag must be:
 
@@ -34,7 +29,7 @@ The GitHub Actions release workflow validates that `v<VERSION>` matches the push
 
 ## Standard Flow
 
-1. Update `VERSION` and `firmware/version.txt` to the new version.
+1. Update `VERSION` to the new version.
 2. Commit the version change and any release workflow changes.
 3. Push `main`.
 4. Push the release tag:
@@ -80,7 +75,7 @@ The output is:
 desktop\windows\build-msi-x64\VoiceStick_<version>.msi
 ```
 
-3. Confirm `firmware/version.txt` also matches the new version.
+3. Confirm the firmware build log reports the same version as `VERSION`.
 4. Commit, push `main`, and push the matching `v<version>` tag.
 5. Wait for the release workflow to finish successfully.
 6. Upload the signed MSI to the same GitHub Release:
@@ -99,7 +94,7 @@ gh workflow run deploy-website.yml --repo 78/voicestick --ref main
 
 Use this flow when macOS and firmware should be published before the Windows package is ready.
 
-1. Update `VERSION` and `firmware/version.txt`.
+1. Update `VERSION`.
 2. Commit, push `main`, and push the matching `v<version>` tag.
 3. Wait for the release workflow to publish macOS and firmware.
 4. Later, on the Windows signing machine, build and sign the MSI:

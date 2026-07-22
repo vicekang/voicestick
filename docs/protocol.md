@@ -31,7 +31,19 @@ Characteristics:
 
 The desktop app scans for this service and only connects to devices whose `VS-XXXX` ID is present in the local paired-device list. Multiple paired devices may be connected at the same time; audio, state, control, and OTA handling are scoped by CoreBluetooth peripheral identity.
 
-## Audio Frame
+## Audio Transport Negotiation
+
+The app requests the bundled transport after discovering `control_rx`:
+
+```json
+{"event":"audio_transport","version":2,"profile":"low_latency"}
+```
+
+Firmware defaults to v1 on every connection. Old apps therefore continue to
+receive the original format, and old firmware safely ignores the new JSON
+event. A v2 app accepts both frame versions.
+
+## Audio Frame v1
 
 All multibyte fields are little-endian.
 
@@ -52,6 +64,57 @@ struct AudioBleFrame {
 The payload contains one raw Opus packet when `payload_len > 0`. The firmware currently encodes 60 ms of 16 kHz mono audio per packet. When recording stops, the firmware also sends an end frame with `flags & 0x02` and an empty payload.
 
 The macOS app wraps incoming Opus packets into an Ogg Opus stream before sending them to ASR. It does not decode Opus to PCM.
+
+## Audio Frame v2
+
+v2 keeps the 16-byte header and changes byte 13 from reserved to
+`packet_count`. The payload contains consecutive length-prefixed Opus packets:
+
+```text
+struct AudioBleBundle {
+  uint8_t  version;       // 2
+  uint8_t  type;          // 0x01 audio
+  uint16_t header_len;    // 16
+  uint32_t session_id;
+  uint32_t first_seq;
+  uint8_t  flags;         // bit0=start, bit1=end
+  uint8_t  packet_count;
+  uint16_t payload_len;
+  struct {
+    uint8_t opus_len;
+    uint8_t opus[opus_len];
+  } packets[packet_count];
+}
+```
+
+Sequence numbers are implicit and contiguous from `first_seq`. Every Opus
+packet still represents 60 ms, so the Mac expands a bundle before passing the
+packets to the unchanged Ogg muxer. An end marker has `packet_count = 0`, an
+empty payload, and the end flag.
+
+The firmware selects the largest bundle that fits the negotiated ATT MTU while
+keeping the Opus voice bitrate at or above 7 kbps. With MTU 247 this is normally
+four packets (240 ms of audio) per notification. With smaller MTUs it falls back
+to fewer packets; if v2 cannot fit, it falls back to v1.
+
+## Audio Delivery Acknowledgement
+
+For every v2 bundle, the Mac writes a compact cumulative ACK to `control_rx`:
+
+```text
+struct AudioAck {
+  uint8_t  version;       // 2
+  uint8_t  type;          // 0x02 audio_ack
+  uint16_t header_len;    // 12
+  uint32_t session_id;
+  uint32_t next_seq;      // first sequence not yet received
+}
+```
+
+The firmware permits only two bundles beyond the latest ACK. This is
+application-level backpressure: a successful NimBLE notify call only means the
+packet entered the local Bluetooth stack, whereas the ACK proves that
+CoreBluetooth delivered it to the app.
 
 ## State Event
 

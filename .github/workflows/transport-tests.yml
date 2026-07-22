@@ -1,0 +1,17 @@
+name: Transport Tests
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  protocol:
+    name: Protocol and state-machine tests
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run transport tests
+        run: ./scripts/test-transport.sh

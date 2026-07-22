@@ -4,6 +4,15 @@
 #include "esp_err.h"
 #include "driver/i2c_master.h"
 
+typedef struct {
+    float accel_x_g;
+    float accel_y_g;
+    float accel_z_g;
+    float gyro_x_rad_s;
+    float gyro_y_rad_s;
+    float gyro_z_rad_s;
+} stick_s3_imu_sample_t;
+
 #define STICK_S3_PIN_BUTTON_FRONT 11
 #define STICK_S3_PIN_BUTTON_SIDE  12
 #define STICK_S3_PIN_PMIC_IRQ     13
@@ -35,6 +44,10 @@ esp_err_t stick_s3_board_battery_level(int *level_percent);
 esp_err_t stick_s3_board_battery_charging(bool *charging);
 esp_err_t stick_s3_board_usb_powered(bool *usb_powered);
 esp_err_t stick_s3_board_clear_power_irqs(uint8_t *sys_status);
+esp_err_t stick_s3_board_speaker_enable(bool enabled);
 void stick_s3_board_prepare_deep_sleep(void);
 bool stick_s3_front_button_pressed(void);
 bool stick_s3_side_button_pressed(void);
+esp_err_t stick_s3_imu_init(void);
+bool stick_s3_imu_is_ready(void);
+esp_err_t stick_s3_imu_read(stick_s3_imu_sample_t *sample);

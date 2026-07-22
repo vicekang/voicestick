@@ -19,6 +19,7 @@
 #include "iot_button.h"
 
 #include "audio_pipeline.h"
+#include "audio_feedback.h"
 #include "stick_s3_board.h"
 #include "ui_status.h"
 #include "voice_ble.h"
@@ -359,9 +360,17 @@ static uint32_t start_recording(void)
         return 0;
     }
 
+    ui_status_set_recording(session_id);
+    audio_feedback_suspend_rolls();
+    esp_err_t feedback_err = audio_feedback_play_start();
+    if (feedback_err != ESP_OK) {
+        ESP_LOGW(TAG, "start sound failed: %s", esp_err_to_name(feedback_err));
+    }
+
     err = audio_pipeline_start(session_id);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "audio start failed: %s", esp_err_to_name(err));
+        audio_feedback_resume_rolls();
         release_recording_pm_locks();
         ui_status_set_error("Audio start failed");
         return 0;
@@ -371,7 +380,6 @@ static uint32_t start_recording(void)
     s_app_ui_state = APP_UI_STATE_RECORDING;
     restart_display_dim_timer();
     restart_deep_sleep_timer();
-    ui_status_set_recording(session_id);
     return session_id;
 }
 
@@ -384,6 +392,17 @@ static uint32_t stop_recording(void)
     const uint32_t session_id = audio_pipeline_session_id();
     s_recording = false;
     audio_pipeline_stop();
+    esp_err_t wait_err = audio_pipeline_wait_stopped(900);
+    if (wait_err != ESP_OK) {
+        ESP_LOGW(TAG, "audio stop wait failed: %s", esp_err_to_name(wait_err));
+    } else {
+        esp_err_t feedback_err = audio_feedback_play_end();
+        if (feedback_err != ESP_OK) {
+            ESP_LOGW(TAG, "end sound failed: %s", esp_err_to_name(feedback_err));
+        }
+    }
+    audio_feedback_resume_rolls();
+    ui_status_set_partial_text("");
     release_recording_pm_locks();
     restart_display_dim_timer();
     restart_deep_sleep_timer();
@@ -493,6 +512,7 @@ static void ble_control_cb(const char *json)
     const cJSON *state = cJSON_GetObjectItemCaseSensitive(root, "state");
     const cJSON *text = cJSON_GetObjectItemCaseSensitive(root, "text");
     const cJSON *mode = cJSON_GetObjectItemCaseSensitive(root, "mode");
+    const cJSON *version = cJSON_GetObjectItemCaseSensitive(root, "version");
     if (cJSON_IsString(event) && strcmp(event->valuestring, "ui_state") == 0 &&
         cJSON_IsString(state)) {
         queue_ui_state_event(state->valuestring, cJSON_IsString(text) ? text->valuestring : "");
@@ -504,6 +524,15 @@ static void ble_control_cb(const char *json)
             apply_interaction_mode(INTERACTION_MODE_HOLD_TO_TALK);
         } else {
             ESP_LOGW(TAG, "unknown interaction_mode %s", mode->valuestring);
+        }
+    } else if (cJSON_IsString(event) && strcmp(event->valuestring, "audio_transport") == 0 &&
+               cJSON_IsNumber(version)) {
+        const uint8_t requested_version = (uint8_t)version->valueint;
+        esp_err_t err = voice_ble_set_audio_transport_version(requested_version);
+        if (err != ESP_OK) {
+            ESP_LOGW(TAG, "unsupported audio transport v%u", requested_version);
+        } else if (requested_version >= AUDIO_TRANSPORT_V2) {
+            voice_ble_request_fast_interval();
         }
     }
     cJSON_Delete(root);
@@ -537,7 +566,11 @@ static void apply_app_ui_state(const char *state, const char *text)
         s_app_ui_state = APP_UI_STATE_READY;
         ui_status_set_idle();
         note_activity();
-        voice_ble_request_slow_interval();
+        if (voice_ble_audio_transport_version() >= AUDIO_TRANSPORT_V2) {
+            voice_ble_request_fast_interval();
+        } else {
+            voice_ble_request_slow_interval();
+        }
     } else if (strcmp(state, "recording") == 0) {
         s_app_ui_state = APP_UI_STATE_RECORDING;
         if (!s_recording) {
@@ -682,6 +715,7 @@ static void app_event_task(void *arg)
             s_app_ui_state = APP_UI_STATE_READY;
             stop_host_response_timer();
             audio_pipeline_stop();
+            audio_feedback_resume_rolls();
             release_recording_pm_locks();
             release_ota_pm_locks();
             ui_status_set_pairing(voice_ble_device_name());
@@ -959,6 +993,12 @@ void app_main(void)
 
     ESP_ERROR_CHECK(init_power_management());
     ESP_ERROR_CHECK(stick_s3_board_init());
+    ESP_ERROR_CHECK(audio_feedback_init());
+    esp_err_t imu_err = stick_s3_imu_init();
+    if (imu_err != ESP_OK) {
+        ESP_LOGW(TAG, "IMU init failed; dice will use fallback motion: %s",
+                 esp_err_to_name(imu_err));
+    }
     ESP_ERROR_CHECK(ui_status_init());
     ESP_ERROR_CHECK(init_display_dim_timer());
     ESP_ERROR_CHECK(init_deep_sleep_timer());

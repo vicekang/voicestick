@@ -10,6 +10,19 @@ struct AudioFrame {
     var isEnd: Bool { flags & 0x02 != 0 }
 }
 
+struct AudioBatch {
+    let transportVersion: UInt8
+    let sessionID: UInt32
+    let firstSeq: UInt32
+    let packetCount: UInt8
+    let flags: UInt8
+    let frames: [AudioFrame]
+
+    var acknowledgedNextSeq: UInt32 {
+        firstSeq &+ UInt32(packetCount)
+    }
+}
+
 struct StateEvent: Decodable {
     let event: String
     let button: String?
@@ -65,10 +78,18 @@ enum BleProtocol {
     static let otaTypeEnd: UInt8 = 0x22
     static let otaTypeAbort: UInt8 = 0x23
     static let otaTypeState: UInt8 = 0x30
+    static let audioType: UInt8 = 0x01
+    static let audioAckType: UInt8 = 0x02
 
     static func parseAudioFrame(_ data: Data) -> AudioFrame? {
+        guard let batch = parseAudioBatch(data), batch.frames.count == 1 else { return nil }
+        return batch.frames[0]
+    }
+
+    static func parseAudioBatch(_ data: Data) -> AudioBatch? {
         guard data.count >= 16 else { return nil }
-        guard data[0] == 1, data[1] == 0x01 else { return nil }
+        let version = data[0]
+        guard (version == 1 || version == 2), data[1] == audioType else { return nil }
 
         let headerLength = UInt16(littleEndianBytes: data[2..<4])
         guard headerLength == 16, data.count >= Int(headerLength) else { return nil }
@@ -76,14 +97,69 @@ enum BleProtocol {
         let sessionID = UInt32(littleEndianBytes: data[4..<8])
         let seq = UInt32(littleEndianBytes: data[8..<12])
         let flags = data[12]
+        let packetCount = version == 2 ? data[13] : 1
         let payloadLength = Int(UInt16(littleEndianBytes: data[14..<16]))
-        guard data.count >= 16 + payloadLength else { return nil }
+        guard data.count == 16 + payloadLength else { return nil }
 
-        return AudioFrame(
+        if version == 1 {
+            let legacyPacketCount: UInt8 = payloadLength == 0 && flags & 0x02 != 0 ? 0 : 1
+            let frame = AudioFrame(
+                sessionID: sessionID,
+                seq: seq,
+                flags: flags,
+                payload: data.subdata(in: 16..<(16 + payloadLength))
+            )
+            return AudioBatch(
+                transportVersion: version,
+                sessionID: sessionID,
+                firstSeq: seq,
+                packetCount: legacyPacketCount,
+                flags: flags,
+                frames: [frame]
+            )
+        }
+
+        if packetCount == 0 {
+            guard payloadLength == 0, flags & 0x02 != 0 else { return nil }
+            let endFrame = AudioFrame(sessionID: sessionID, seq: seq, flags: flags, payload: Data())
+            return AudioBatch(
+                transportVersion: version,
+                sessionID: sessionID,
+                firstSeq: seq,
+                packetCount: 0,
+                flags: flags,
+                frames: [endFrame]
+            )
+        }
+
+        var cursor = 16
+        var frames: [AudioFrame] = []
+        frames.reserveCapacity(Int(packetCount))
+        for index in 0..<Int(packetCount) {
+            guard cursor < data.count else { return nil }
+            let packetLength = Int(data[cursor])
+            cursor += 1
+            guard packetLength > 0, cursor + packetLength <= data.count else { return nil }
+
+            var frameFlags: UInt8 = 0
+            if index == 0 { frameFlags |= flags & 0x01 }
+            if index == Int(packetCount) - 1 { frameFlags |= flags & 0x02 }
+            frames.append(AudioFrame(
+                sessionID: sessionID,
+                seq: seq &+ UInt32(index),
+                flags: frameFlags,
+                payload: data.subdata(in: cursor..<(cursor + packetLength))
+            ))
+            cursor += packetLength
+        }
+        guard cursor == data.count else { return nil }
+        return AudioBatch(
+            transportVersion: version,
             sessionID: sessionID,
-            seq: seq,
+            firstSeq: seq,
+            packetCount: packetCount,
             flags: flags,
-            payload: data.subdata(in: 16..<(16 + payloadLength))
+            frames: frames
         )
     }
 
@@ -112,12 +188,28 @@ enum BleProtocol {
         return (try? JSONSerialization.data(withJSONObject: payload)) ?? Data()
     }
 
-    static func interactionModePayload(_ mode: InteractionMode) -> Data {
+    static func interactionModePayload(_ mode: String) -> Data {
         let payload = [
             "event": "interaction_mode",
-            "mode": mode.rawValue
+            "mode": mode
         ]
         return (try? JSONSerialization.data(withJSONObject: payload)) ?? Data()
+    }
+
+    static func audioTransportPayload(version: UInt8 = 2) -> Data {
+        let payload: [String: Any] = [
+            "event": "audio_transport",
+            "version": version,
+            "profile": "low_latency"
+        ]
+        return (try? JSONSerialization.data(withJSONObject: payload)) ?? Data()
+    }
+
+    static func audioAckPayload(sessionID: UInt32, nextSeq: UInt32) -> Data {
+        var data = Data([2, audioAckType, 12, 0])
+        data.appendLittleEndian(sessionID)
+        data.appendLittleEndian(nextSeq)
+        return data
     }
 
     static func otaBeginPayload(imageSize: UInt32, transferID: UInt32) -> Data {

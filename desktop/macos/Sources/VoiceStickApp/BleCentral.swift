@@ -19,6 +19,15 @@ struct FirmwareUpdateProgress {
 }
 
 final class BleCentral: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate {
+    private struct AudioReceiveStats {
+        var sessionID: UInt32
+        var notifications = 0
+        var frames = 0
+        var sequenceGaps = 0
+        var expectedSeq: UInt32
+        let startedAt = Date()
+    }
+
     enum FirmwareUpdateError: LocalizedError {
         case noConnectedDevice
         case otaCharacteristicUnavailable
@@ -69,6 +78,7 @@ final class BleCentral: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate
     private var controlCharacteristics: [UUID: CBCharacteristic] = [:]
     private var otaCharacteristics: [UUID: CBCharacteristic] = [:]
     private var firmwareUpdateSession: FirmwareUpdateSession?
+    private var audioReceiveStats: [UUID: AudioReceiveStats] = [:]
     private var interactionMode: InteractionMode = .holdToTalk
     private var isWorkspaceSleeping = false
 
@@ -147,7 +157,7 @@ final class BleCentral: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate
 
     func sendInteractionMode(_ mode: InteractionMode, to peripheralID: UUID? = nil) {
         interactionMode = mode
-        let data = BleProtocol.interactionModePayload(mode)
+        let data = BleProtocol.interactionModePayload(mode.rawValue)
         if let peripheralID {
             if let characteristic = controlCharacteristics[peripheralID] {
                 peripherals[peripheralID]?.writeValue(data, for: characteristic, type: .withoutResponse)
@@ -286,6 +296,11 @@ final class BleCentral: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate
                 peripheral.setNotifyValue(true, for: characteristic)
             case BleProtocol.controlUUID:
                 controlCharacteristics[peripheral.identifier] = characteristic
+                peripheral.writeValue(
+                    BleProtocol.audioTransportPayload(),
+                    for: characteristic,
+                    type: .withoutResponse
+                )
                 sendUIState("ready", to: peripheral.identifier)
                 sendInteractionMode(interactionMode, to: peripheral.identifier)
             case BleProtocol.otaRXUUID:
@@ -302,8 +317,26 @@ final class BleCentral: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate
         guard let data = characteristic.value else { return }
         switch characteristic.uuid.uuidString.uppercased() {
         case BleProtocol.audioUUID:
-            if let frame = BleProtocol.parseAudioFrame(data) {
-                onAudioFrame?(peripheral.identifier, frame)
+            if let batch = BleProtocol.parseAudioBatch(data) {
+                recordAudioBatch(batch, peripheralID: peripheral.identifier)
+                if batch.transportVersion >= 2,
+                   let control = controlCharacteristics[peripheral.identifier] {
+                    // ACK delivery before downstream ASR work. Starting the first
+                    // WebSocket session can briefly occupy the main queue; making
+                    // transport flow control wait for that work caused a false
+                    // firmware timeout and a sequence gap on the first recording.
+                    peripheral.writeValue(
+                        BleProtocol.audioAckPayload(
+                            sessionID: batch.sessionID,
+                            nextSeq: batch.acknowledgedNextSeq
+                        ),
+                        for: control,
+                        type: .withoutResponse
+                    )
+                }
+                for frame in batch.frames {
+                    onAudioFrame?(peripheral.identifier, frame)
+                }
             }
         case BleProtocol.stateUUID:
             if let event = BleProtocol.parseStateEvent(data) {
@@ -315,6 +348,36 @@ final class BleCentral: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate
             }
         default:
             break
+        }
+    }
+
+    private func recordAudioBatch(_ batch: AudioBatch, peripheralID: UUID) {
+        var stats = audioReceiveStats[peripheralID]
+        if stats?.sessionID != batch.sessionID {
+            stats = AudioReceiveStats(
+                sessionID: batch.sessionID,
+                expectedSeq: batch.firstSeq
+            )
+        }
+        guard var stats else { return }
+
+        if batch.firstSeq != stats.expectedSeq {
+            stats.sequenceGaps += 1
+        }
+        stats.notifications += 1
+        stats.frames += Int(batch.packetCount)
+        stats.expectedSeq = batch.acknowledgedNextSeq
+        audioReceiveStats[peripheralID] = stats
+
+        if batch.flags & 0x02 != 0 {
+            let elapsed = Date().timeIntervalSince(stats.startedAt)
+            NSLog(
+                "BLE audio complete transport=v\(batch.transportVersion) " +
+                "session=\(batch.sessionID) frames=\(stats.frames) " +
+                "notifications=\(stats.notifications) gaps=\(stats.sequenceGaps) " +
+                "elapsed_ms=\(Int(elapsed * 1000))"
+            )
+            audioReceiveStats.removeValue(forKey: peripheralID)
         }
     }
 

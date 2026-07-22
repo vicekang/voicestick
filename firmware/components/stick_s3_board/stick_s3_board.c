@@ -33,6 +33,7 @@ static i2c_master_dev_handle_t s_pmic_dev;
 #define M5PM1_PWR_CFG_LED_CTRL BIT(4)
 #define M5PM1_HOLD_CFG_LDO_HOLD BIT(5)
 #define M5PM1_GPIO2_L3B_POWER_EN BIT(2)
+#define M5PM1_GPIO3_SPEAKER_EN BIT(3)
 #define M5PM1_GPIO_FUNC_MASK(pin) (0x03 << ((pin) * 2))
 #define M5PM1_GPIO_FUNC_GPIO(pin) (0x00 << ((pin) * 2))
 #define M5PM1_GPIO_FUNC_IRQ(pin)  (0x01 << ((pin) * 2))
@@ -193,6 +194,15 @@ static void init_pmic(void)
                                                   M5PM1_GPIO2_L3B_POWER_EN, 0));
     ESP_ERROR_CHECK_WITHOUT_ABORT(pmic_update_reg(M5PM1_REG_GPIO_OUT,
                                                   0, M5PM1_GPIO2_L3B_POWER_EN));
+    ESP_ERROR_CHECK_WITHOUT_ABORT(pmic_update_reg(M5PM1_REG_GPIO_FUNC0,
+                                                  M5PM1_GPIO_FUNC_MASK(3),
+                                                  M5PM1_GPIO_FUNC_GPIO(3)));
+    ESP_ERROR_CHECK_WITHOUT_ABORT(pmic_update_reg(M5PM1_REG_GPIO_MODE,
+                                                  0, M5PM1_GPIO3_SPEAKER_EN));
+    ESP_ERROR_CHECK_WITHOUT_ABORT(pmic_update_reg(M5PM1_REG_GPIO_DRV,
+                                                  M5PM1_GPIO3_SPEAKER_EN, 0));
+    ESP_ERROR_CHECK_WITHOUT_ABORT(pmic_update_reg(M5PM1_REG_GPIO_OUT,
+                                                  M5PM1_GPIO3_SPEAKER_EN, 0));
     ESP_ERROR_CHECK_WITHOUT_ABORT(pmic_write_reg(M5PM1_REG_I2C_CFG, 0x00));
     ESP_ERROR_CHECK_WITHOUT_ABORT(pmic_update_reg(M5PM1_REG_GPIO_FUNC0, BIT(0), 0));
     ESP_ERROR_CHECK_WITHOUT_ABORT(pmic_update_reg(M5PM1_REG_GPIO_MODE, BIT(0), 0));
@@ -369,4 +379,14 @@ void stick_s3_board_prepare_deep_sleep(void)
 bool stick_s3_side_button_pressed(void)
 {
     return read_active_low_button(STICK_S3_PIN_BUTTON_SIDE);
+}
+
+esp_err_t stick_s3_board_speaker_enable(bool enabled)
+{
+    if (!s_pmic_dev) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    return pmic_update_reg(M5PM1_REG_GPIO_OUT,
+                           enabled ? 0 : M5PM1_GPIO3_SPEAKER_EN,
+                           enabled ? M5PM1_GPIO3_SPEAKER_EN : 0);
 }

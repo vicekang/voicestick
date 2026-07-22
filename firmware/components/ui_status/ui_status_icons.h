@@ -14,6 +14,7 @@ typedef enum {
 
 typedef struct {
     lv_obj_t *root;
+    void *buffer;
 } ui_status_icons_t;
 
 void ui_status_icons_create(ui_status_icons_t *icons, lv_obj_t *screen);

@@ -182,10 +182,10 @@ static void render_scene_locked(ui_status_icon_scene_t scene, const char *status
     const bool resting = scene == UI_STATUS_ICON_RESTING;
     const bool pairing = scene == UI_STATUS_ICON_PAIRING || scene == UI_STATUS_ICON_BOOT;
     const bool error = scene == UI_STATUS_ICON_ERROR;
-    lv_color_t bg = resting ? lv_color_hex(0x1b2430) : lv_color_hex(0xfff7ed);
-    lv_color_t text = resting ? lv_color_hex(0xe8eef7) : lv_color_hex(0x3f3440);
-    lv_color_t muted = resting ? lv_color_hex(0xa8bad2) : lv_color_hex(0x7f7180);
-    lv_color_t hint_color = resting ? lv_color_hex(0xdfe9f8) : muted;
+    lv_color_t bg = resting ? lv_color_hex(0x03050a) : lv_color_hex(0x070b16);
+    lv_color_t text = lv_color_hex(0xf4f7ff);
+    lv_color_t muted = resting ? lv_color_hex(0x6b7890) : lv_color_hex(0x93a3bd);
+    lv_color_t hint_color = resting ? lv_color_hex(0x8795aa) : lv_color_hex(0xb7c4d8);
     lv_color_t ble = error ? lv_color_hex(0xf97373) :
                      pairing ? lv_color_hex(0x8fb8ff) :
                      lv_color_hex(0x55c98a);
@@ -215,14 +215,14 @@ static void render_current_locked(void)
 static void create_status_ui(void)
 {
     s_screen = lv_display_get_screen_active(s_display);
-    lv_obj_set_style_bg_color(s_screen, lv_color_hex(0xfff7ed), 0);
-    lv_obj_set_style_text_color(s_screen, lv_color_hex(0x3f3440), 0);
+    lv_obj_set_style_bg_color(s_screen, lv_color_hex(0x070b16), 0);
+    lv_obj_set_style_text_color(s_screen, lv_color_hex(0xf4f7ff), 0);
     lv_obj_set_style_pad_all(s_screen, 8, 0);
 
     s_top_label = lv_label_create(s_screen);
     lv_label_set_text(s_top_label, s_device_name);
     lv_obj_set_style_text_font(s_top_label, &lv_font_montserrat_10, 0);
-    lv_obj_set_style_text_color(s_top_label, lv_color_hex(0x7f7180), 0);
+    lv_obj_set_style_text_color(s_top_label, lv_color_hex(0x93a3bd), 0);
     lv_label_set_long_mode(s_top_label, LV_LABEL_LONG_CLIP);
     lv_obj_set_width(s_top_label, 66);
     lv_obj_align(s_top_label, LV_ALIGN_TOP_LEFT, 12, 4);
@@ -236,7 +236,7 @@ static void create_status_ui(void)
     s_status_label = lv_label_create(s_screen);
     lv_label_set_text(s_status_label, "Booting");
     lv_obj_set_style_text_font(s_status_label, &lv_font_montserrat_16, 0);
-    lv_obj_set_style_text_color(s_status_label, lv_color_hex(0x3f3440), 0);
+    lv_obj_set_style_text_color(s_status_label, lv_color_hex(0xf4f7ff), 0);
     lv_obj_set_width(s_status_label, LCD_H_RES - 16);
     lv_obj_set_style_text_align(s_status_label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align(s_status_label, LV_ALIGN_TOP_MID, 0, 168);
@@ -245,7 +245,7 @@ static void create_status_ui(void)
     lv_label_set_long_mode(s_hint_label, LV_LABEL_LONG_WRAP);
     lv_obj_set_width(s_hint_label, LCD_H_RES - 16);
     lv_obj_set_style_text_align(s_hint_label, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_style_text_color(s_hint_label, lv_color_hex(0x7f7180), 0);
+    lv_obj_set_style_text_color(s_hint_label, lv_color_hex(0xb7c4d8), 0);
     lv_label_set_text(s_hint_label, "Starting up");
     lv_obj_align(s_hint_label, LV_ALIGN_BOTTOM_MID, 0, -10);
 
@@ -454,8 +454,8 @@ void ui_status_set_recording(uint32_t session_id)
 
     _lock_acquire(&s_lvgl_lock);
     s_scene = UI_STATUS_ICON_RECORDING;
-    strlcpy(s_status_text, "Listening", sizeof(s_status_text));
-    strlcpy(s_hint_text, "Speak now", sizeof(s_hint_text));
+    strlcpy(s_status_text, "ON AIR", sizeof(s_status_text));
+    strlcpy(s_hint_text, "Release to finish", sizeof(s_hint_text));
     render_current_locked();
     _lock_release(&s_lvgl_lock);
 }

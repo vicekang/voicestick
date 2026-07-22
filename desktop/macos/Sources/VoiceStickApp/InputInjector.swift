@@ -15,10 +15,7 @@ final class InputInjector {
 
         if pressEnter {
             NSLog("InputInjector auto_enter")
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
-                self.releaseCommandKey()
-                self.sendReturn()
-            }
+            pressReturn(after: 0.12)
         }
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
@@ -29,6 +26,13 @@ final class InputInjector {
             if !restoredItems.isEmpty {
                 pasteboard.writeObjects(restoredItems)
             }
+        }
+    }
+
+    func pressReturn(after delay: TimeInterval = 0.05) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+            self.releaseCommandKey()
+            self.sendReturn()
         }
     }
 

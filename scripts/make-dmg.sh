@@ -34,7 +34,7 @@ if [ "$CODESIGN_IDENTITY" != "-" ]; then
     codesign --deep --force --options runtime --sign "$CODESIGN_IDENTITY" "$APP_PATH"
 else
     echo "Using ad-hoc signature."
-    codesign --deep --force --options runtime --sign - "$APP_PATH"
+    codesign --deep --force --sign - "$APP_PATH"
 fi
 
 echo "Verifying app signature..."

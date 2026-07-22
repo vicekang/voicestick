@@ -20,15 +20,17 @@ Hold the front button on the StickS3 to record. When you release it, the macOS m
 - The macOS app only connects to paired `VS-XXXX` devices and can keep multiple paired devices connected at once. The menu bar app lists every paired device and shows whether each one is connected or still scanning.
 - The front button maps to the protocol `primary` role; it starts a recording session on press and ends it on release when the app has put the device in `ready`.
 - The firmware reads 16 kHz mono PCM from the ES8311 microphone, encodes it as Opus, and sends it over BLE notifications.
+- The negotiated v2 audio transport bundles several 60 ms Opus packets per notification and uses cumulative app acknowledgements to prevent post-release Bluetooth backlog. Legacy v1 remains supported.
 - The macOS app wraps incoming Opus payloads into Ogg Opus and forwards them to ASR over WebSocket.
 - ASR providers can be direct Volcengine or VoiceStick Cloud relay.
 - During recognition, the macOS app shows a floating overlay and menu bar status. The firmware display stays in the thinking state after button release until the text is pasted or cancelled.
 - Final text enters a 1.2 second confirmation countdown.
 - Pressing the front button during the countdown pauses auto-paste. Pressing the front button again confirms paste; pressing the side button cancels it.
-- Pressing the side button while idle restores the last recoverable input confirmation.
+- With `auto_enter = false`, pressing the side button while recognition is finishing queues Return; pressing it shortly after paste sends the current message.
 - Optional debug audio cache saves each valid recognition session as Ogg Opus, with the source device ID included in the file name when available.
 - Firmware updates are checked from a signed-by-hash manifest on app launch, device connect/reconnect, and manual menu refresh. Updates are offered per connected device.
 - The firmware screen shows pairing, ready, listening, thinking, pending confirmation, error, and battery states based on app-sent `ui_state` updates. It dims after 30 seconds of inactivity. On battery power it enters deep sleep after 5 minutes; while charging or USB powered it stays at the dimmed-screen stage. The front button wakes it from deep sleep.
+- While idle, the screen simulates a physical die from BMI270 accelerometer and gyroscope data and plays collision sounds. During recording it freezes into a flowing rainbow die and plays radio-style start/end cues.
 
 ## Hardware Target
 
@@ -47,11 +49,11 @@ Main pin definitions live in `firmware/components/stick_s3_board/include/stick_s
 | State | Front button | Side button |
 | --- | --- | --- |
 | Unpaired / disconnected | No recording; screen shows `VS-XXXX` | No effective action |
-| Connected idle | Hold to record | Restore last input confirmation |
+| Connected idle | Hold to record | Send a recent unsent paste with Return |
 | Recording | Release to finish recording | Does not cancel the active recording |
-| Thinking / finalizing | New recording is ignored | Cancel the in-progress recognition |
-| Pending confirmation countdown | Pause auto-paste and keep pending confirmation | Cancel pending text |
-| Manual pending confirmation | Confirm paste | Cancel pending text |
+| Thinking / finalizing | New recording is ignored | Queue Return after recognized text is pasted |
+| Pending confirmation countdown | Pause auto-paste and keep pending confirmation | Paste and send with Return |
+| Manual pending confirmation | Confirm paste | Paste and send with Return |
 
 The firmware reports raw button facts (`button_down` / `button_up` with
 `primary` or `secondary`). The macOS app owns the interaction state machine and
@@ -134,6 +136,13 @@ Run it:
 
 ```sh
 swift run VoiceStickApp
+```
+
+Run the transport serializer, Mac parser, and side-button state-machine
+regression checks with:
+
+```sh
+./scripts/test-transport.sh
 ```
 
 The app is a menu bar accessory app and requests Bluetooth permission. Text insertion uses simulated `Command-V` plus optional Return. If macOS blocks the keyboard events, grant Accessibility permission to the running terminal or app in System Settings.

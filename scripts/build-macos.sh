@@ -119,7 +119,11 @@ if [ "$CODESIGN_IDENTITY" != "-" ]; then
     codesign --deep --force --options runtime --sign "$CODESIGN_IDENTITY" "$APP_DIR"
 else
     echo "Using ad-hoc signature."
-    codesign --deep --force --options runtime --sign - "$APP_DIR"
+    # Hardened runtime enforces library validation. Ad-hoc code has no shared
+    # Team ID, so a hardened ad-hoc main executable cannot load the separately
+    # signed Sparkle framework. Local builds must omit hardened runtime; public
+    # builds use the Developer ID branch above.
+    codesign --deep --force --sign - "$APP_DIR"
 fi
 
 echo "Verifying app signature..."
@@ -150,7 +154,9 @@ if [ -n "$SIGN_TOOL" ] && [ -x "$SIGN_TOOL" ]; then
     if [ -n "$ED_SIGNATURE" ]; then
         printf '%s\n' "$ED_SIGNATURE" > "$SIGNATURE_PATH"
     else
-        printf '%s\n' "$SIGN_OUTPUT" > "$SIGNATURE_PATH"
+        rm -f "$SIGNATURE_PATH"
+        echo "WARNING: Sparkle update signature was not generated."
+        echo "         The app bundle is usable for local testing, but the ZIP must not be published."
     fi
 else
     echo "WARNING: Sparkle sign_update tool was not found."

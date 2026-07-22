@@ -3,6 +3,7 @@
 #include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdatomic.h>
 #include <string.h>
 #include <sys/param.h>
 
@@ -26,6 +27,8 @@
 #include "services/gap/ble_svc_gap.h"
 #include "services/gatt/ble_svc_gatt.h"
 
+#include "audio_transport.h"
+
 static const char *TAG = "voice_ble";
 
 #define OTA_PROGRESS_NOTIFY_BYTES (32 * 1024)
@@ -38,6 +41,10 @@ static uint8_t s_own_addr_type;
 static uint16_t s_audio_attr_handle;
 static uint16_t s_state_attr_handle;
 static uint16_t s_ota_state_attr_handle;
+static atomic_uint_fast16_t s_att_mtu = ATOMIC_VAR_INIT(23);
+static atomic_uchar s_audio_transport_version = ATOMIC_VAR_INIT(AUDIO_TRANSPORT_V1);
+static atomic_uint_fast32_t s_audio_session_id;
+static atomic_uint_fast32_t s_audio_acked_seq;
 static char s_device_id[5] = "0000";
 static char s_device_name[8] = VOICE_BLE_DEVICE_NAME_PREFIX "-0000";
 static voice_ble_connection_cb_t s_connection_cb;
@@ -390,14 +397,26 @@ static int control_access_cb(uint16_t conn_handle, uint16_t attr_handle,
         return BLE_ATT_ERR_UNLIKELY;
     }
 
-    char buffer[512] = {0};
     const uint16_t len = OS_MBUF_PKTLEN(ctxt->om);
-    const uint16_t copy_len = MIN(len, sizeof(buffer) - 1);
-    int rc = ble_hs_mbuf_to_flat(ctxt->om, buffer, copy_len, NULL);
+    uint8_t raw[512] = {0};
+    const uint16_t copy_len = MIN(len, sizeof(raw) - 1);
+    int rc = ble_hs_mbuf_to_flat(ctxt->om, raw, copy_len, NULL);
     if (rc != 0) {
         return BLE_ATT_ERR_UNLIKELY;
     }
 
+    if (len == 12 && raw[0] == AUDIO_TRANSPORT_V2 &&
+        raw[1] == VOICE_BLE_CONTROL_TYPE_AUDIO_ACK && read_le16(&raw[2]) == 12) {
+        const uint32_t session_id = read_le32(&raw[4]);
+        const uint32_t next_seq = read_le32(&raw[8]);
+        if (session_id == atomic_load(&s_audio_session_id) &&
+            next_seq >= atomic_load(&s_audio_acked_seq)) {
+            atomic_store(&s_audio_acked_seq, next_seq);
+        }
+        return 0;
+    }
+
+    char *buffer = (char *)raw;
     ESP_LOGD(TAG, "control %s", buffer);
     if (s_control_cb) {
         s_control_cb(buffer);
@@ -465,6 +484,10 @@ static int gap_event_cb(struct ble_gap_event *event, void *arg)
             s_audio_subscribed = false;
             s_state_subscribed = false;
             s_conn_handle = event->connect.conn_handle;
+            atomic_store(&s_att_mtu, 23);
+            atomic_store(&s_audio_transport_version, AUDIO_TRANSPORT_V1);
+            atomic_store(&s_audio_session_id, 0);
+            atomic_store(&s_audio_acked_seq, 0);
             ESP_LOGI(TAG, "connected handle=%u", s_conn_handle);
             stop_advertising();
             // Some BLE centrals (notably WinRT on Windows) do not always
@@ -506,6 +529,10 @@ static int gap_event_cb(struct ble_gap_event *event, void *arg)
         s_audio_subscribed = false;
         s_state_subscribed = false;
         s_conn_handle = BLE_HS_CONN_HANDLE_NONE;
+        atomic_store(&s_att_mtu, 23);
+        atomic_store(&s_audio_transport_version, AUDIO_TRANSPORT_V1);
+        atomic_store(&s_audio_session_id, 0);
+        atomic_store(&s_audio_acked_seq, 0);
         s_itvl_target = CONN_ITVL_NONE;
         s_itvl_update_pending = false;
         start_advertising();
@@ -561,7 +588,9 @@ static int gap_event_cb(struct ble_gap_event *event, void *arg)
     }
 
     case BLE_GAP_EVENT_MTU:
-        ESP_LOGD(TAG, "mtu=%u", event->mtu.value);
+        atomic_store(&s_att_mtu, event->mtu.value);
+        ESP_LOGI(TAG, "att mtu=%u notify_payload=%u", event->mtu.value,
+                 (unsigned)audio_transport_att_payload_capacity(event->mtu.value));
         return 0;
 
     default:
@@ -752,59 +781,124 @@ bool voice_ble_ota_is_active(void)
     return s_ota.active;
 }
 
-esp_err_t voice_ble_send_audio(uint32_t session_id, uint32_t seq, uint8_t flags,
-                               const uint8_t *opus_payload, size_t len)
+uint8_t voice_ble_audio_transport_version(void)
+{
+    return atomic_load(&s_audio_transport_version);
+}
+
+uint16_t voice_ble_att_mtu(void)
+{
+    return (uint16_t)atomic_load(&s_att_mtu);
+}
+
+esp_err_t voice_ble_set_audio_transport_version(uint8_t version)
+{
+    if (version != AUDIO_TRANSPORT_V1 && version != AUDIO_TRANSPORT_V2) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    atomic_store(&s_audio_transport_version, version);
+    atomic_store(&s_audio_session_id, 0);
+    atomic_store(&s_audio_acked_seq, 0);
+    ESP_LOGI(TAG, "audio transport v%u selected (att_mtu=%u)",
+             version, voice_ble_att_mtu());
+    return ESP_OK;
+}
+
+void voice_ble_begin_audio_session(uint32_t session_id)
+{
+    atomic_store(&s_audio_session_id, session_id);
+    atomic_store(&s_audio_acked_seq, 0);
+}
+
+esp_err_t voice_ble_wait_for_audio_window(uint32_t session_id,
+                                          uint32_t next_seq,
+                                          uint32_t max_inflight_frames,
+                                          uint32_t timeout_ms)
+{
+    if (voice_ble_audio_transport_version() < AUDIO_TRANSPORT_V2) {
+        return ESP_OK;
+    }
+
+    const TickType_t started = xTaskGetTickCount();
+    const TickType_t timeout = pdMS_TO_TICKS(timeout_ms);
+    while (voice_ble_is_ready()) {
+        if (session_id != atomic_load(&s_audio_session_id)) {
+            return ESP_ERR_INVALID_STATE;
+        }
+        const uint32_t acked = atomic_load(&s_audio_acked_seq);
+        if (acked >= next_seq || next_seq - acked <= max_inflight_frames) {
+            return ESP_OK;
+        }
+        if (xTaskGetTickCount() - started >= timeout) {
+            return ESP_ERR_TIMEOUT;
+        }
+        vTaskDelay(pdMS_TO_TICKS(5));
+    }
+    return ESP_ERR_INVALID_STATE;
+}
+
+esp_err_t voice_ble_send_audio_packets(uint32_t session_id,
+                                       uint32_t first_seq,
+                                       uint8_t flags,
+                                       const audio_transport_packet_t *packets,
+                                       uint8_t packet_count)
 {
     if (!voice_ble_is_ready() || s_conn_handle == BLE_HS_CONN_HANDLE_NONE) {
         return ESP_ERR_INVALID_STATE;
     }
+
+    const uint8_t version = voice_ble_audio_transport_version();
+    const size_t capacity = audio_transport_att_payload_capacity(voice_ble_att_mtu());
+    uint8_t frame[CONFIG_BT_NIMBLE_ATT_PREFERRED_MTU] = {0};
+    size_t frame_len = 0;
+    if (capacity > sizeof(frame)) {
+        return ESP_ERR_INVALID_SIZE;
+    }
+    const audio_transport_result_t encode_result = audio_transport_encode(
+        version, session_id, first_seq, flags, packets, packet_count,
+        frame, capacity, &frame_len);
+    if (encode_result != AUDIO_TRANSPORT_OK) {
+        ESP_LOGW(TAG, "audio encode failed v=%u seq=%" PRIu32
+                      " packets=%u mtu=%u result=%d",
+                 version, first_seq, packet_count, voice_ble_att_mtu(), encode_result);
+        return encode_result == AUDIO_TRANSPORT_BUFFER_TOO_SMALL ||
+               encode_result == AUDIO_TRANSPORT_PACKET_TOO_LARGE
+            ? ESP_ERR_INVALID_SIZE
+            : ESP_ERR_INVALID_ARG;
+    }
+
+    struct os_mbuf *om = ble_hs_mbuf_from_flat(frame, frame_len);
+    if (!om) {
+        return ESP_ERR_NO_MEM;
+    }
+    const int rc = ble_gatts_notify_custom(s_conn_handle, s_audio_attr_handle, om);
+    if (rc != 0) {
+        ESP_LOGD(TAG, "audio notify backpressure seq=%" PRIu32 " rc=%d", first_seq, rc);
+        return rc == BLE_HS_ENOMEM ? ESP_ERR_NO_MEM : ESP_FAIL;
+    }
+
+    ESP_LOGD(TAG, "audio tx v=%u seq=%" PRIu32 " packets=%u bytes=%u",
+             version, first_seq, packet_count, (unsigned)frame_len);
+    return ESP_OK;
+}
+
+esp_err_t voice_ble_send_audio(uint32_t session_id, uint32_t seq, uint8_t flags,
+                               const uint8_t *opus_payload, size_t len)
+{
     if (len > UINT16_MAX) {
         return ESP_ERR_INVALID_SIZE;
     }
-
-    uint8_t header[16] = {
-        1,
-        0x01,
-        16,
-        0,
-        session_id & 0xff,
-        (session_id >> 8) & 0xff,
-        (session_id >> 16) & 0xff,
-        (session_id >> 24) & 0xff,
-        seq & 0xff,
-        (seq >> 8) & 0xff,
-        (seq >> 16) & 0xff,
-        (seq >> 24) & 0xff,
-        flags,
-        0,
-        len & 0xff,
-        (len >> 8) & 0xff,
+    if (voice_ble_audio_transport_version() == AUDIO_TRANSPORT_V2 &&
+        len == 0 && (flags & VOICE_BLE_FLAG_END)) {
+        return voice_ble_send_audio_packets(session_id, seq, flags, NULL, 0);
+    }
+    const audio_transport_packet_t packet = {
+        .seq = seq,
+        .flags = flags,
+        .payload = opus_payload,
+        .len = (uint16_t)len,
     };
-
-    struct os_mbuf *om = ble_hs_mbuf_from_flat(header, sizeof(header));
-    if (!om) {
-        ESP_LOGW(TAG, "tx seq=%" PRIu32 " mbuf alloc failed", seq);
-        return ESP_ERR_NO_MEM;
-    }
-
-    if (len > 0) {
-        int rc = os_mbuf_append(om, opus_payload, len);
-        if (rc != 0) {
-            os_mbuf_free_chain(om);
-            ESP_LOGW(TAG, "tx seq=%" PRIu32 " mbuf append failed rc=%d", seq, rc);
-            return ESP_FAIL;
-        }
-    }
-
-    int rc = ble_gatts_notify_custom(s_conn_handle, s_audio_attr_handle, om);
-    if (rc != 0) {
-        ESP_LOGW(TAG, "tx seq=%" PRIu32 " notify failed rc=%d", seq, rc);
-        return ESP_FAIL;
-    }
-
-    ESP_LOGI(TAG, "tx seq=%" PRIu32 " %u bytes, sram: %" PRIu32 " bytes",
-             seq, (unsigned)(sizeof(header) + len), esp_get_free_internal_heap_size());
-    return ESP_OK;
+    return voice_ble_send_audio_packets(session_id, seq, 0, &packet, 1);
 }
 
 esp_err_t voice_ble_request_fast_interval(void)
