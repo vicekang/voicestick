@@ -4,6 +4,19 @@ Voice Stick turns an M5Stack StickS3 into a Bluetooth push-to-talk input device 
 
 Hold the front button on the StickS3 to record. When you release it, the macOS menu bar app sends the audio to ASR, shows the recognized text, and pastes the final result into the currently focused input field after a short confirmation countdown. By default it pastes text and presses Return; `auto_enter` can be disabled in settings.
 
+## UI Preview
+
+<table>
+  <tr>
+    <th>Ready · Physical dice</th>
+    <th>Listening · Rainbow dice</th>
+  </tr>
+  <tr>
+    <td><img src="docs/images/voicestick-ready-dice.png" alt="VoiceStick ready screen with physical dice" width="440"></td>
+    <td><img src="docs/images/voicestick-listening-rainbow.png" alt="VoiceStick listening screen with rainbow dice" width="440"></td>
+  </tr>
+</table>
+
 ## Project Layout
 
 - `firmware/`: ESP-IDF firmware for M5Stack StickS3 / ESP32-S3.
